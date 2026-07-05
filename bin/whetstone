@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Whetstone CLI: whetstone <report|status|on|off|mode|refine|selftest>"""
+"""Whetstone CLI: whetstone <try|report|status|on|off|mode|refine|selftest>"""
 from __future__ import annotations
 
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -87,6 +89,68 @@ def cmd_refine(args):
         print("This prompt is already in good shape — nothing to add.")
 
 
+def cmd_try(args):
+    """Simulate the live Coach Gate on a prompt — shows exactly what teaching
+    mode would do, without turning it on or touching your real log/state."""
+    if not args:
+        print('usage: whetstone try "your rough prompt"')
+        print("Shows what the live gate would do (block+coach, or pass silently).")
+        return
+    import shutil
+    import subprocess
+    import tempfile
+
+    prompt = " ".join(args)
+    feats = scorer.classify(prompt)
+    cfg = dict(config.load())
+    cfg["mode"] = "always"
+    coach = scorer.should_coach(feats, cfg)
+
+    print(f"mode: {feats['mode']}   would coach: {coach}")
+    if feats.get("gaps"):
+        print("gaps: " + ", ".join(feats["gaps"]))
+
+    gate = Path(__file__).resolve().parent / "coach_gate.py"
+    home = tempfile.mkdtemp()
+    try:
+        env = {
+            **os.environ,
+            "WHETSTONE_HOME": home,          # sandbox: never touches your real log
+            "PCOACH_MODE": "always",
+            "PCOACH_COOLDOWN": "0",
+        }
+        proc = subprocess.run(
+            [sys.executable, str(gate)],
+            input=json.dumps({"prompt": prompt, "session_id": "try"}),
+            capture_output=True, text=True, env=env,
+        )
+        out = proc.stdout.strip()
+        if not out:
+            print("\n→ would PASS silently (not a coaching target).")
+            if feats["is_continuation"]:
+                print("  reason: a continuation/confirmation — never coached.")
+            elif feats["is_command"]:
+                print("  reason: a slash/bang/hash command — never coached.")
+            elif feats["looks_like_paste"]:
+                print("  reason: looks like pasted code/logs — never coached.")
+            elif feats["mode"] != "execute":
+                print(f"  reason: mode is '{feats['mode']}', not an under-specified build ask.")
+            elif feats["word_count"] < cfg["min_words"]:
+                print(f"  reason: only {feats['word_count']} words (under the {cfg['min_words']}-word gate).")
+            else:
+                print("  reason: already specified enough — nothing to add.")
+            return
+        data = json.loads(out)
+        if "decision" in data:
+            key = "with a written AI rewrite" if os.environ.get("ANTHROPIC_API_KEY") else "with a local scaffold (no API key)"
+            print(f"\n→ would BLOCK and teach {key}:\n")
+            print(data["reason"])
+        elif "hookSpecificOutput" in data:
+            print("\n→ would send the refined version via context (accept path).")
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+
+
 def cmd_selftest(_args):
     """Fast smoke test with no network: classifier sanity on canonical inputs."""
     checks = [
@@ -108,6 +172,7 @@ def cmd_selftest(_args):
 
 
 COMMANDS = {
+    "try": cmd_try,
     "report": cmd_report,
     "status": cmd_status,
     "on": cmd_on,
@@ -120,7 +185,7 @@ COMMANDS = {
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print("usage: whetstone <report|status|on|off|mode|refine|selftest>")
+        print("usage: whetstone <try|report|status|on|off|mode|refine|selftest>")
         sys.exit(1)
     COMMANDS[sys.argv[1]](sys.argv[2:])
 

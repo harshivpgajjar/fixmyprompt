@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Whetstone CLI: whetstone <report|status|on|off|mode|refine|selftest>"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from whetstone import config, refiner, report, scorer  # noqa: E402
+
+
+def cmd_report(args):
+    days = int(args[0]) if args else 7
+    print(report.summarize(days))
+
+
+def cmd_status(_args):
+    cfg = config.load()
+    print("Whetstone status")
+    print(f"  mode         : {cfg['mode']}   (always | sigil | off)")
+    print(f"  sigil        : {cfg['sigil']}")
+    print(f"  min_words    : {cfg['min_words']}")
+    print(f"  cooldown_sec : {cfg['cooldown_sec']}")
+    print(f"  inject(tmux) : {cfg['inject']}")
+    print(f"  model        : {cfg['model']}")
+    print(f"  config       : {config.CONFIG_PATH}")
+    print(f"  prompt log   : {config.RUNTIME_DIR / 'prompt-log.jsonl'}")
+
+
+def cmd_on(_args):
+    config.save({"mode": "always"})
+    print("Whetstone: live coaching ON (mode=always). Applies to new sessions.")
+
+
+def cmd_off(_args):
+    config.save({"mode": "off"})
+    print("Whetstone: live coaching OFF. /refine and the weekly report still work.")
+
+
+def cmd_mode(args):
+    if not args or args[0] not in ("always", "sigil", "off"):
+        print("usage: whetstone mode <always|sigil|off>")
+        return
+    config.save({"mode": args[0]})
+    print(f"Whetstone: mode={args[0]} (applies to new sessions).")
+
+
+def cmd_refine(args):
+    if not args:
+        print('usage: whetstone refine "your rough prompt"')
+        return
+    prompt = " ".join(args)
+    feats = scorer.classify(prompt)
+    r = refiner.refine(prompt)
+    print(f"mode: {r.get('mode') or feats['mode']}")
+    if not r.get("needs_refinement"):
+        print("This prompt is already in good shape — nothing to add.")
+        if feats["gaps"]:
+            print("(local check flagged: " + ", ".join(feats["gaps"]) + ")")
+        return
+    print("\n── refined ──")
+    print(r["refined"])
+    if r.get("tip"):
+        print(f"\nwhy: {r['tip']}")
+
+
+def cmd_selftest(_args):
+    """Fast smoke test with no network: classifier sanity on canonical inputs."""
+    checks = [
+        ("yes", "is_continuation", True),
+        ("continue", "is_continuation", True),
+        ("build me a dashboard", "mode", "execute"),
+        ("blow me away with a landing page", "mode", "explore"),
+        ("fix the login bug so that invalid passwords show an error", "has_done_criteria", True),
+    ]
+    ok = 0
+    for prompt, key, expected in checks:
+        got = scorer.classify(prompt)[key]
+        flag = "ok" if got == expected else "FAIL"
+        if got == expected:
+            ok += 1
+        print(f"  [{flag}] classify({prompt!r})[{key}] = {got!r} (want {expected!r})")
+    print(f"{ok}/{len(checks)} classifier checks passed")
+    sys.exit(0 if ok == len(checks) else 1)
+
+
+COMMANDS = {
+    "report": cmd_report,
+    "status": cmd_status,
+    "on": cmd_on,
+    "off": cmd_off,
+    "mode": cmd_mode,
+    "refine": cmd_refine,
+    "selftest": cmd_selftest,
+}
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        print("usage: whetstone <report|status|on|off|mode|refine|selftest>")
+        sys.exit(1)
+    COMMANDS[sys.argv[1]](sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()

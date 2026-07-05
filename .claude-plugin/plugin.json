@@ -1,0 +1,7 @@
+{
+  "name": "whetstone",
+  "version": "0.1.0",
+  "description": "A prompt coach for Claude Code — refines your prompt at submit time, teaches better prompting, and measures your improvement over time. Mode-aware (never touches intentional exploration) and voice-preserving.",
+  "author": "Harshiv Gajjar",
+  "keywords": ["prompt", "coach", "refine", "productivity", "prompt-engineering"]
+}

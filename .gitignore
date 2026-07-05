@@ -1,5 +1,13 @@
 node_modules/
+__pycache__/
+*.pyc
 .env
 .env.*
 *.log
 .DS_Store
+# runtime state (never committed)
+prompt-log.jsonl
+pending/
+cooldown/
+backstop.json
+config.json

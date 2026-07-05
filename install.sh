@@ -44,8 +44,16 @@ fi
 # 3. CLI on PATH
 mkdir -p "$HOME/.local/bin"
 ln -sf "$DEST/bin/whetstone" "$BIN_LINK"
-chmod +x "$DEST/bin/whetstone" "$DEST/bin/coach_gate.py"
+chmod +x "$DEST/bin/whetstone" "$DEST/bin/coach_gate.py" "$DEST/bin/backfill_log.py"
 echo "  ✓ CLI: $BIN_LINK  (ensure ~/.local/bin is on PATH)"
+
+# 3b. Install the /refine slash command into the user's global skills.
+mkdir -p "$HOME/.claude/skills/refine"
+cp "$SRC/skills/refine/SKILL.md" "$HOME/.claude/skills/refine/SKILL.md"
+echo "  ✓ /refine skill installed"
+
+# 3c. Backfill the prompt log from real history so `whetstone report` has data.
+python3 "$DEST/bin/backfill_log.py" 30 | sed 's/^/  • /'
 
 # 4. Wire the hook into settings.json (Python does the JSON merge safely)
 python3 - "$SETTINGS" "$DEST/bin/coach_gate.py" <<'PY'

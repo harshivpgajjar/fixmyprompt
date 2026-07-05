@@ -11,3 +11,7 @@ pending/
 cooldown/
 backstop.json
 config.json
+
+# Fable research scratch — experimental, may touch credentials; never commit
+scratch/
+RESEARCH-*.md

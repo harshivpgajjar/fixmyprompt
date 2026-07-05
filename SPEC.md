@@ -1,5 +1,7 @@
 # Whetstone — a prompt coach for Claude Code
-*Spec v0.1 · 2026-07-05. Working name "Whetstone" (it sharpens the user, not just the prompt). Alts: Hone, Muse, Prompt Coach.*
+*Spec v0.2 · 2026-07-05. Working name "Whetstone" (it sharpens the user, not just the prompt). Alts: Hone, Muse, Prompt Coach.*
+
+> **STATUS: BUILT & INSTALLED (2026-07-05).** All three phases shipped in one pass. 88/88 tests green (stdlib unittest); scorer and Coach Gate hardened + mutation-tested by Fable 5 subagents; every hook branch live-verified. Installed to `~/.claude/whetstone`, hook wired into settings.json (coaching **off** by default — `whetstone on` to enable), `/refine` skill live, 911 real prompts backfilled into the report, weekly self-audit now emits a Prompting section. See README.md for usage.
 
 ## Problem
 Prompt quality is the biggest lever most Claude Code users have left, and nobody teaches it. Existing "prompt enhancers" rewrite one prompt and create dependence — they never build the skill. The gap between a user's best prompt and their worst is enormous (for the primary user: a full written spec that shipped a product in 3 days, vs. "i love tide, perfect it"). Close that gap by **teaching, in the flow, without friction** — and measure the improvement over time.

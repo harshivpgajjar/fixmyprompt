@@ -8,7 +8,7 @@ cmd = sys.argv[3:]
 times = []
 for i in range(n):
     t0 = time.monotonic()
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
     dt = time.monotonic() - t0
     times.append(dt)
     out = (r.stdout or "").strip().replace("\n", " ")[:120]

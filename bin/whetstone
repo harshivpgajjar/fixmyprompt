@@ -20,7 +20,7 @@ def cmd_report(args):
 def cmd_status(_args):
     cfg = config.load()
     print("Whetstone status")
-    print(f"  mode         : {cfg['mode']}   (always | sigil | off)")
+    print(f"  mode         : {cfg['mode']}   (always | whisper | sigil | off)")
     print(f"  sigil        : {cfg['sigil']}")
     print(f"  min_words    : {cfg['min_words']}")
     print(f"  cooldown_sec : {cfg['cooldown_sec']}")

@@ -20,8 +20,11 @@ DEFAULTS = {
     #   "off"    — never intercept; /refine and logging still work
     "mode": "off",
     "sigil": "??",
-    # silence gate: prompts at or below this word count are never coached.
-    "min_words": 12,
+    # silence gate: prompts with fewer than this many words are never coached.
+    # 4 catches the short vague asks people actually type ("fix the mobile
+    # version", "build me a dashboard") while ≤3-word instructions and
+    # continuations stay silent. Raise it if you find it too eager.
+    "min_words": 4,
     # anti-nag: don't coach again in the same session within this many seconds.
     "cooldown_sec": 90,
     # one-shot bypass flag lifetime (the "second Enter always sends" guarantee).

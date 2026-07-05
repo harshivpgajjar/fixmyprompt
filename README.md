@@ -57,7 +57,7 @@ whetstone selftest        # offline classifier smoke test
 |---|---|---|
 | `mode` | `off` | `always` / `sigil` / `off` |
 | `sigil` | `??` | prefix that opts a prompt in, in sigil mode |
-| `min_words` | `12` | never coach prompts shorter than this |
+| `min_words` | `4` | never coach prompts shorter than this (4 catches short vague asks; raise it if too eager) |
 | `cooldown_sec` | `90` | anti-nag: no second coach within this window |
 | `inject` | `true` | in tmux, paste the refined text into the input line |
 | `model` | `claude-haiku-4-5` | refiner model (fail-open) |

@@ -35,9 +35,10 @@ class CliTryTest(unittest.TestCase):
         self.assertIn("explore", out)
 
     def test_word_gate_knob(self):
-        # 5-word vague prompt: silent at default gate, coached when lowered
-        self.assertIn("would PASS silently", run_try("make this website mobile responsive"))
-        self.assertIn("would BLOCK", run_try("make this website mobile responsive", min_words=4))
+        # 5-word vague prompt: coached at the default gate (4), silent when raised
+        self.assertIn("would BLOCK", run_try("make this website mobile responsive"))
+        self.assertIn("would PASS silently",
+                      run_try("make this website mobile responsive", min_words=8))
 
     def test_usage_without_arg(self):
         out = subprocess.run([sys.executable, str(CLI), "try"], capture_output=True, text=True).stdout

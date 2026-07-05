@@ -31,7 +31,7 @@ if [ ! -f "$DEST/config.json" ]; then
 {
   "mode": "off",
   "inject": true,
-  "min_words": 12,
+  "min_words": 4,
   "cooldown_sec": 90,
   "model": "claude-haiku-4-5"
 }

@@ -211,8 +211,8 @@ class CoachGateTest(unittest.TestCase):
         )
 
     def test_short_prompt_passes_silently(self):
-        # execute-mode but under min_words (12)
-        self._assert_silent(["fix the broken login page now please"])
+        # execute-mode but under min_words (default 4 -> ≤3-word asks stay silent)
+        self._assert_silent(["fix the login"])
 
     def test_explore_prompt_passes_silently(self):
         self._assert_silent(

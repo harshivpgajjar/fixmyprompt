@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from whetstone import config, refiner, report, scorer  # noqa: E402
+from whetstone import config, refiner, report, scorer, suggest  # noqa: E402
 
 
 def cmd_report(args):
@@ -53,16 +53,38 @@ def cmd_refine(args):
     prompt = " ".join(args)
     feats = scorer.classify(prompt)
     r = refiner.refine(prompt)
-    print(f"mode: {r.get('mode') or feats['mode']}")
-    if not r.get("needs_refinement"):
-        print("This prompt is already in good shape — nothing to add.")
-        if feats["gaps"]:
-            print("(local check flagged: " + ", ".join(feats["gaps"]) + ")")
+    # trust the LLM's mode only when it actually refined; else the local classifier
+    # is the reliable source (the refiner returns a default "other" when it fails open).
+    print(f"mode: {r.get('mode') if r.get('needs_refinement') else feats['mode']}")
+
+    if r.get("needs_refinement"):
+        print("\n── refined ──")
+        print(r["refined"])
+        if r.get("tip"):
+            print(f"\nwhy: {r['tip']}")
         return
-    print("\n── refined ──")
-    print(r["refined"])
-    if r.get("tip"):
-        print(f"\nwhy: {r['tip']}")
+
+    # LLM said no change (or the backend was unreachable and it failed open).
+    # If the local classifier still sees real gaps, offer a deterministic scaffold
+    # rather than a misleading "nothing to add".
+    scaffold = suggest.template(prompt, feats)
+    if scaffold:
+        print("\n── scaffold (fill the <…> and send) ──")
+        print(scaffold)
+        print("\nwhy: naming the done-state turns an open-ended ask into a checkable "
+              "one — you get one pass instead of a back-and-forth.")
+        import os
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            print("\n(offline scaffold — set ANTHROPIC_API_KEY for a written LLM rewrite, "
+                  "or use the /refine skill inside a session for a full one.)")
+        return
+
+    if feats["mode"] == "explore":
+        print("\nThis is an explore prompt — intentionally open-ended. That's a valid "
+              "discovery ask; no scaffolding needed. Tip: add 'as N distinct single "
+              "screens' to keep the exploration cheap and comparable.")
+    else:
+        print("This prompt is already in good shape — nothing to add.")
 
 
 def cmd_selftest(_args):

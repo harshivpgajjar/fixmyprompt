@@ -43,6 +43,11 @@ DEFAULTS = {
     # 20s timeout so the refiner fails open gracefully before the hook is killed.
     "model": "claude-haiku-4-5",
     "refine_timeout_sec": 15,
+    # warm daemon: fast (~1.5s) AI-written rewrites on your subscription, no key.
+    # Enabled by `whetstone daemon on`. When up, the block gate shows written
+    # rewrites with y-to-send instead of the fill-in scaffold.
+    "use_daemon": False,
+    "daemon_timeout": 4.0,  # covers a cold first request (~2.6s); warm is ~1.7s
     # coaching only engages when the composite quality score is below this.
     "coach_below_quality": 0.7,
     # write full (redacted) prompt previews to the log for the weekly report.

@@ -53,6 +53,17 @@ from whetstone import (  # noqa: E402
 
 _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it", "ship it", "go"}
 
+
+def _daemon_up() -> bool:
+    """True if the warm-refine daemon is running (fast subscription rewrites, no key)."""
+    if os.environ.get("WHETSTONE_FAKE_REFINE"):
+        return False  # test seam owns the refine path; don't consult the daemon
+    try:
+        from whetstone import daemon
+        return daemon.is_running()
+    except Exception:
+        return False
+
 # Only these modes may ever intercept a prompt. Anything else ("off", a typo,
 # a future mode this version doesn't know) is treated as silence — the gate
 # must fail quiet, never fail loud.
@@ -278,12 +289,15 @@ def main() -> None:
         #    Local mode (no key — the default, works on any subscription with no
         #      setup): an instant deterministic scaffold from the classifier's
         #      gaps. Nothing to auto-send, so the user edits and resends.
-        llm_mode = bool(os.environ.get("ANTHROPIC_API_KEY")) or bool(
-            os.environ.get("WHETSTONE_FAKE_REFINE")
-        )
+        has_api = bool(os.environ.get("ANTHROPIC_API_KEY"))
+        has_seam = bool(os.environ.get("WHETSTONE_FAKE_REFINE"))
+        daemon_up = _daemon_up()
+        llm_mode = has_api or has_seam or daemon_up
         refined_sendable = ""  # complete text the user can send with `y`
         banner_body = ""
         tip = ""
+        scaffold_tip = ("Name the done-state and target so it's checkable — "
+                        "you get one pass instead of a back-and-forth.")
         if llm_mode:
             try:
                 result = _refine(body, cfg)
@@ -293,13 +307,25 @@ def main() -> None:
                 result = {}
             r = result.get("refined")
             r = r.strip() if isinstance(r, str) else ""
-            if not result.get("needs_refinement") or not r:
+            if result.get("needs_refinement") and r:
+                refined_sendable = r
+                banner_body = r
+                t = result.get("tip")
+                tip = t if isinstance(t, str) else ""
+            elif daemon_up and not has_api and not has_seam:
+                # The daemon was our only backend and it missed/declined (cold
+                # timeout, hiccup, or a low-confidence "no"). Don't go silent —
+                # teach via the local scaffold instead.
+                scaffold = suggest.template(body, features)
+                if not scaffold:
+                    scorelog.log(prompt, features, ACTION_PASS, cfg)
+                    _emit_passthrough()
+                banner_body = scaffold
+                tip = scaffold_tip
+            else:
+                # A real API/seam judged "no refinement" -> respect it, pass through.
                 scorelog.log(prompt, features, ACTION_PASS, cfg)
-                _emit_passthrough()  # fail-open: LLM had nothing / errored
-            refined_sendable = r
-            banner_body = r
-            t = result.get("tip")
-            tip = t if isinstance(t, str) else ""
+                _emit_passthrough()
         else:
             scaffold = suggest.template(body, features)
             if not scaffold:
@@ -307,8 +333,7 @@ def main() -> None:
                 _emit_passthrough()  # nothing worth surfacing
             banner_body = scaffold
             refined_sendable = ""  # scaffold has <placeholders>; not auto-sendable
-            tip = ("Name the done-state and target so it's checkable — "
-                   "you get one pass instead of a back-and-forth.")
+            tip = scaffold_tip
 
         # 6. PRESENT. Arm the one-shot bypass BEFORE emitting the block: if
         # arming fails we fall to the outer handler and pass through instead —

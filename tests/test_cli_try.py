@@ -2,6 +2,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,7 +10,13 @@ CLI = Path(__file__).resolve().parent.parent / "bin" / "whetstone"
 
 
 def run_try(prompt, min_words=None):
-    env = {**os.environ, "ANTHROPIC_API_KEY": ""}
+    # isolate from the user's real config (which may be whisper/daemon) and from
+    # any running daemon, so `try` previews the default 'always' block behavior.
+    env = {
+        **os.environ,
+        "ANTHROPIC_API_KEY": "",
+        "WHETSTONE_HOME": tempfile.mkdtemp(),  # fresh: mode defaults off -> preview 'always'
+    }
     if min_words is not None:
         env["PCOACH_MIN_WORDS"] = str(min_words)
     return subprocess.run(

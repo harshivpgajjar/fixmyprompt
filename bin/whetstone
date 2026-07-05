@@ -9,7 +9,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from whetstone import config, refiner, report, scorer, suggest  # noqa: E402
+from whetstone import config, daemon, refiner, report, scorer, suggest  # noqa: E402
+
+_LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.whetstone.daemon.plist"
 
 
 def cmd_report(args):
@@ -160,6 +162,64 @@ def cmd_try(args):
         shutil.rmtree(home, ignore_errors=True)
 
 
+def _write_launch_agent():
+    """KeepAlive LaunchAgent so the daemon survives crashes/reboots."""
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.whetstone.daemon</string>
+  <key>ProgramArguments</key>
+  <array><string>{sys.executable}</string><string>-m</string><string>whetstone.daemon</string><string>run</string></array>
+  <key>EnvironmentVariables</key><dict><key>PYTHONPATH</key><string>{Path(__file__).resolve().parent.parent}</string></dict>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>{config.RUNTIME_DIR / 'daemon-launchd.log'}</string>
+</dict></plist>
+"""
+    _LAUNCH_AGENT.parent.mkdir(parents=True, exist_ok=True)
+    _LAUNCH_AGENT.write_text(plist)
+
+
+def cmd_daemon(args):
+    sub = args[0] if args else "status"
+    if sub == "status":
+        s = daemon.status()
+        print(f"daemon: {'running' if s['running'] else 'stopped'}"
+              + (f" (pid {s['pid']}, {s.get('turns_served', 0)} turns served)" if s['running'] else ""))
+        print(f"  socket: {s['socket']}")
+        print(f"  keep-alive agent: {'installed' if _LAUNCH_AGENT.exists() else 'not installed'}")
+    elif sub == "start":
+        started = daemon.start()
+        print("daemon: starting…" if started else "daemon: already running")
+        if started:
+            daemon.refine("warm up", timeout=8.0)  # prime it so the first real refine is warm (~1.7s)
+    elif sub == "stop":
+        print("daemon: stopped" if daemon.stop() else "daemon: was not running")
+    elif sub == "on":
+        config.save({"use_daemon": True})
+        _write_launch_agent()
+        import subprocess
+        uid = os.getuid()
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.whetstone.daemon"],
+                       capture_output=True)
+        subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(_LAUNCH_AGENT)],
+                       capture_output=True)
+        if daemon.start():
+            daemon.refine("warm up", timeout=8.0)  # prime the session
+        print("Whetstone daemon: ON — fast AI-written rewrites on your subscription, no key.")
+        print("The block gate will now show written rewrites (y to send). New sessions pick it up.")
+    elif sub == "off":
+        config.save({"use_daemon": False})
+        import subprocess
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.whetstone.daemon"],
+                       capture_output=True)
+        _LAUNCH_AGENT.unlink(missing_ok=True)
+        daemon.stop()
+        print("Whetstone daemon: OFF. Gate falls back to whisper/scaffold (still no key).")
+    else:
+        print("usage: whetstone daemon <on|off|start|stop|status>")
+
+
 def cmd_selftest(_args):
     """Fast smoke test with no network: classifier sanity on canonical inputs."""
     checks = [
@@ -182,6 +242,7 @@ def cmd_selftest(_args):
 
 COMMANDS = {
     "try": cmd_try,
+    "daemon": cmd_daemon,
     "report": cmd_report,
     "status": cmd_status,
     "on": cmd_on,
@@ -194,7 +255,7 @@ COMMANDS = {
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print("usage: whetstone <try|report|status|on|off|mode|refine|selftest>")
+        print("usage: whetstone <try|report|status|on|off|mode|daemon|refine|selftest>")
         sys.exit(1)
     COMMANDS[sys.argv[1]](sys.argv[2:])
 

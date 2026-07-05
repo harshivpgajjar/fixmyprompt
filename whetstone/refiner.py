@@ -25,6 +25,15 @@ _SYSTEM_PATH = _PROMPT_DIR / "coach_system_prompt.md"
 _EMPTY = {"needs_refinement": False, "mode": "other", "refined": "", "tip": ""}
 
 
+def _daemon_up() -> bool:
+    """True if the warm-refine daemon is running (fast subscription backend)."""
+    try:
+        from . import daemon
+        return daemon.is_running()
+    except Exception:
+        return False
+
+
 def _system_prompt(context: str) -> str:
     try:
         base = _SYSTEM_PATH.read_text()
@@ -159,6 +168,14 @@ def refine(prompt: str, context: str | None = None, cfg: dict | None = None) -> 
     else:  # default / "api": fast API path only
         backends = (_via_api,)
     obj = None
+    # Warm-daemon path first when it's up: ~1.5s subscription rewrites, no key,
+    # no credential handling. Returns a full result dict already; fail-open None.
+    if _daemon_up():
+        from . import daemon
+        d = daemon.refine(prompt, timeout=cfg.get("daemon_timeout", 2.5), context=context)
+        if isinstance(d, dict) and d.get("needs_refinement") and str(d.get("refined") or "").strip():
+            return _normalize(d)
+        # daemon answered "nothing to add" (or was down) -> fall through
     for b in backends:
         obj = b(prompt, system, cfg)
         if obj is not None:

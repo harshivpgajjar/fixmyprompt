@@ -74,9 +74,15 @@ prompt. So Whetstone does **not** put an LLM in the critical path by default:
   analysis. The classifier finds the gaps and the gate blocks with a fill-in
   **scaffold** + one teaching point — instant, private, works on any Claude
   subscription with no setup. Nothing leaves your machine.
-- **Live gate (optional LLM upgrade):** set `ANTHROPIC_API_KEY` and you get
-  AI-*written* rewrites plus the one-keystroke `y`-to-send (the API path is ~1s;
-  it fails open if it errors). This is the only place a key helps.
+- **Live gate + warm daemon (subscription, no key, ~1.5s):** run `whetstone daemon on`
+  and the block gate shows AI-*written* rewrites with one-keystroke `y`-to-send —
+  the full "before enter" experience — on your **subscription, no API key**. It
+  works by keeping one `claude` session warm (a ~200MB background process, opt-in,
+  KeepAlive), so each refine is inference-only (~1.7s warm, ~2.6s cold). It never
+  touches a credential — the child `claude` self-authenticates like any session.
+  If the daemon is down or slow, the gate falls back to the scaffold instantly.
+- **Live gate (API-key upgrade):** set `ANTHROPIC_API_KEY` for the fastest path
+  (~1s, no daemon). Optional.
 - **`/refine` skill (no key):** a full LLM rewrite using your **session model** —
   subscription-native, on demand, higher quality than the scaffold. Use this
   whenever you want a written refinement without a key.

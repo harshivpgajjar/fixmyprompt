@@ -196,7 +196,13 @@ def cmd_daemon(args):
     elif sub == "stop":
         print("daemon: stopped" if daemon.stop() else "daemon: was not running")
     elif sub == "on":
-        config.save({"use_daemon": True})
+        # the daemon only feeds the BLOCK gate (always/sigil); in whisper/off it
+        # would sit idle. Switch to 'always' so the rewrites you enabled show up.
+        patch = {"use_daemon": True}
+        switched = config.load()["mode"] in ("off", "whisper")
+        if switched:
+            patch["mode"] = "always"
+        config.save(patch)
         _write_launch_agent()
         import subprocess
         uid = os.getuid()
@@ -207,6 +213,8 @@ def cmd_daemon(args):
         if daemon.start():
             daemon.refine("warm up", timeout=8.0)  # prime the session
         print("Whetstone daemon: ON — fast AI-written rewrites on your subscription, no key.")
+        if switched:
+            print("Mode set to 'always' so the rewrites appear (whisper/off don't use the daemon).")
         print("The block gate will now show written rewrites (y to send). New sessions pick it up.")
     elif sub == "off":
         config.save({"use_daemon": False})

@@ -15,9 +15,12 @@ CONFIG_PATH = RUNTIME_DIR / "config.json"
 
 DEFAULTS = {
     # mode: how the live hook behaves.
-    #   "always" — coach every qualifying execute-mode prompt (the intended UX)
-    #   "sigil"  — only coach prompts that start with the sigil (opt-in per prompt)
-    #   "off"    — never intercept; /refine and logging still work
+    #   "always"  — block before send, show a refined version / local scaffold
+    #   "sigil"   — same as always, but only for prompts starting with the sigil
+    #   "whisper" — DON'T block; inject a coaching note so the main session model
+    #               (subscription, no key, no extra call) asks for the missing
+    #               piece. Fully subscription, zero key, zero added latency.
+    #   "off"     — never intercept; /refine and logging still work
     "mode": "off",
     "sigil": "??",
     # silence gate: prompts with fewer than this many words are never coached.

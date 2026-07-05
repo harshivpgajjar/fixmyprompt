@@ -41,8 +41,12 @@ def cmd_off(_args):
 
 
 def cmd_mode(args):
-    if not args or args[0] not in ("always", "sigil", "off"):
-        print("usage: whetstone mode <always|sigil|off>")
+    if not args or args[0] not in ("always", "sigil", "whisper", "off"):
+        print("usage: whetstone mode <always|sigil|whisper|off>")
+        print("  always  — block before send, show refined/scaffold")
+        print("  whisper — no block; main model asks for the missing piece (subscription, no key)")
+        print("  sigil   — only coach prompts starting with the sigil")
+        print("  off     — disable live coaching")
         return
     config.save({"mode": args[0]})
     print(f"Whetstone: mode={args[0]} (applies to new sessions).")
@@ -103,10 +107,12 @@ def cmd_try(args):
     prompt = " ".join(args)
     feats = scorer.classify(prompt)
     cfg = dict(config.load())
-    cfg["mode"] = "always"
+    # preview using your configured mode if it's an intercepting one, else 'always'
+    preview_mode = cfg["mode"] if cfg["mode"] in ("always", "sigil", "whisper") else "always"
+    cfg["mode"] = preview_mode
     coach = scorer.should_coach(feats, cfg)
 
-    print(f"mode: {feats['mode']}   would coach: {coach}")
+    print(f"mode: {feats['mode']}   preview as: {preview_mode}   would coach: {coach}")
     if feats.get("gaps"):
         print("gaps: " + ", ".join(feats["gaps"]))
 
@@ -116,7 +122,7 @@ def cmd_try(args):
         env = {
             **os.environ,
             "WHETSTONE_HOME": home,          # sandbox: never touches your real log
-            "PCOACH_MODE": "always",
+            "PCOACH_MODE": preview_mode,
             "PCOACH_COOLDOWN": "0",
         }
         proc = subprocess.run(
@@ -146,7 +152,10 @@ def cmd_try(args):
             print(f"\n→ would BLOCK and teach {key}:\n")
             print(data["reason"])
         elif "hookSpecificOutput" in data:
-            print("\n→ would send the refined version via context (accept path).")
+            ctx = data["hookSpecificOutput"].get("additionalContext", "")
+            print("\n→ WHISPER: would NOT block. Injects this note so your main model "
+                  "(subscription, no key) asks for the missing piece:\n")
+            print(ctx)
     finally:
         shutil.rmtree(home, ignore_errors=True)
 

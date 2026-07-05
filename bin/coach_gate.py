@@ -56,7 +56,12 @@ _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it
 # Only these modes may ever intercept a prompt. Anything else ("off", a typo,
 # a future mode this version doesn't know) is treated as silence — the gate
 # must fail quiet, never fail loud.
-_INTERCEPTING_MODES = ("always", "sigil")
+#   always  — block before send, show a refined version / scaffold
+#   sigil   — same as always, but only for prompts starting with the sigil
+#   whisper — DON'T block; inject a coaching note so the main session model
+#             (subscription, no key, no extra call) asks for the missing piece.
+#             The fully-subscription, zero-key, zero-latency automatic path.
+_INTERCEPTING_MODES = ("always", "sigil", "whisper")
 
 
 def _emit_passthrough() -> None:
@@ -86,6 +91,34 @@ def _emit_accept(refined: str) -> None:
     )
     sys.stdout.flush()
     sys.exit(0)
+
+
+def _emit_whisper(context: str) -> None:
+    json.dump(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": context,
+            }
+        },
+        sys.stdout,
+    )
+    sys.stdout.flush()
+    sys.exit(0)
+
+
+def _whisper_context(features: dict) -> str:
+    gaps = features.get("gaps") or []
+    missing = ", ".join(gaps) if gaps else "a concrete done-state"
+    return (
+        "[Whetstone prompt coach] The user's request is under-specified for a clean "
+        f"one-pass result — it's missing: {missing}. Before doing the work, briefly ask "
+        "the user to confirm the key missing piece (a checkable done-state and the target "
+        "surface), UNLESS it's obvious from context — in which case proceed, but state the "
+        "assumption you're making. Then, in one short sentence, note what detail would have "
+        "made the request unambiguous, so they learn the pattern for next time. Keep this to "
+        "2-3 sentences total; ask, don't lecture, and don't mention this note."
+    )
 
 
 def _clipboard(text: str) -> None:
@@ -229,6 +262,15 @@ def main() -> None:
         if not scorer.should_coach(features, cfg) or state.cooldown_active(session_id, cfg):
             scorelog.log(prompt, features, ACTION_PASS, cfg)
             _emit_passthrough()
+
+        # 4b. WHISPER MODE — fully subscription, no key, no extra model call.
+        # Don't block: inject a coaching note so the MAIN session model (already
+        # running on the user's subscription) asks for the missing piece and
+        # teaches the pattern. Zero added latency; nothing to time out.
+        if mode == "whisper":
+            state.mark_coached(session_id)  # respect the cooldown between nudges
+            scorelog.log(prompt, features, ACTION_COACH, cfg)
+            _emit_whisper(_whisper_context(features))
 
         # 5. REFINE — pick the path by whether a fast LLM is configured.
         #    LLM mode (ANTHROPIC_API_KEY set, or the test seam active): get an

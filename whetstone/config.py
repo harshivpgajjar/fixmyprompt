@@ -33,8 +33,10 @@ DEFAULTS = {
     "inject": True,
     "inject_delay_ms": 450,
     # model + timeout for the refiner (fail-open on any error/timeout).
+    # 15s gives `claude -p` room for a cold start; keep it below the hook's
+    # 20s timeout so the refiner fails open gracefully before the hook is killed.
     "model": "claude-haiku-4-5",
-    "refine_timeout_sec": 8,
+    "refine_timeout_sec": 15,
     # coaching only engages when the composite quality score is below this.
     "coach_below_quality": 0.7,
     # write full (redacted) prompt previews to the log for the weekly report.

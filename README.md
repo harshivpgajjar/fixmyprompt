@@ -11,7 +11,7 @@ A prompt coach for Claude Code. When you submit a rough prompt, Whetstone offers
 Three surfaces, use as much or as little as you like:
 
 1. **`/refine <rough prompt>`** — opt-in, zero-risk. Hand it a draft; get back a refined version, the detected mode, and one prompting lesson. Works today, no setup beyond install.
-2. **Coach Gate** (the live "before enter" flow) — you hit Enter on a rough prompt, it **doesn't send**; a refined version appears (and lands on your clipboard); you press **`y`** to send the refined one, **⌘V** to paste-and-tweak it, or type anything to send your own. Off by default; `whetstone on` to enable.
+2. **Coach Gate** (the live "before enter" flow) — you hit Enter on a rough prompt, it **doesn't send**. With no API key it shows an instant local scaffold of what's missing + one teaching point; you edit and resend. With `ANTHROPIC_API_KEY` set it shows an AI-written rewrite you can send with a single **`y`** (or **⌘V** to tweak, or type anything to send your own). Off by default; `whetstone on` to enable.
 3. **Weekly report** — every prompt is scored locally and logged; the Saturday self-audit reports whether your prompts are getting more self-sufficient, and your top recurring gaps. Teaching, made measurable.
 
 ## The honest ceiling (read this)
@@ -63,7 +63,30 @@ whetstone selftest        # offline classifier smoke test
 | `model` | `claude-haiku-4-5` | refiner model (fail-open) |
 | `coach_below_quality` | `0.7` | only coach when the local quality score is below this |
 
-Refiner backend: uses `ANTHROPIC_API_KEY` if set (fast), else falls back to `claude -p` (zero-config, slower). Either way, a coached prompt costs about half a cent and ~1–2.5s — and only ~20% of prompts get coached.
+### Refiner backend — no API key needed
+
+A submit-time hook has a hard latency budget (a few seconds), and the only
+subscription-authenticated model call from a shell is `claude -p`, which spins
+up a full agent session (~20–40s) — far too slow to sit in front of every
+prompt. So Whetstone does **not** put an LLM in the critical path by default:
+
+- **Live gate (default, zero key, zero network):** a deterministic *local*
+  analysis. The classifier finds the gaps and the gate blocks with a fill-in
+  **scaffold** + one teaching point — instant, private, works on any Claude
+  subscription with no setup. Nothing leaves your machine.
+- **Live gate (optional LLM upgrade):** set `ANTHROPIC_API_KEY` and you get
+  AI-*written* rewrites plus the one-keystroke `y`-to-send (the API path is ~1s;
+  it fails open if it errors). This is the only place a key helps.
+- **`/refine` skill (no key):** a full LLM rewrite using your **session model** —
+  subscription-native, on demand, higher quality than the scaffold. Use this
+  whenever you want a written refinement without a key.
+- **`whetstone refine` CLI:** local scaffold by default; set `WHETSTONE_BACKEND=cli`
+  to force a `claude -p` subscription rewrite (slow, ~20s — you're waiting on
+  purpose), or `ANTHROPIC_API_KEY` for the fast API rewrite.
+
+**Recursion guard:** if the CLI backend (`claude -p`) is ever used, that nested
+session's own `UserPromptSubmit` hook would re-enter the gate. Whetstone sets
+`WHETSTONE_IN_REFINER` on the subprocess so nested invocations no-op instantly.
 
 ## Privacy
 

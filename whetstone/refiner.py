@@ -112,6 +112,12 @@ def _via_api(prompt: str, system: str, cfg: dict) -> dict | None:
 
 
 def _via_cli(prompt: str, system: str, cfg: dict) -> dict | None:
+    """Subscription path: `claude -p` authenticates from the user's logged-in
+    Claude Code session — no API key required. This is the default backend so a
+    distributable plugin works on any user's subscription out of the box.
+
+    Sets WHETSTONE_IN_REFINER so the nested `claude -p` session's own
+    UserPromptSubmit hook no-ops instead of recursing into this gate forever."""
     combined = (
         system
         + "\n\n---\nHere is the user's raw prompt to evaluate. Return only the JSON.\n\n"
@@ -122,11 +128,14 @@ def _via_cli(prompt: str, system: str, cfg: dict) -> dict | None:
             ["claude", "-p", "--model", cfg["model"], combined],
             capture_output=True,
             text=True,
-            timeout=cfg["refine_timeout_sec"] + 6,
+            timeout=cfg.get("refine_timeout_sec", 15),
+            env={**os.environ, "WHETSTONE_IN_REFINER": "1"},
         )
         if proc.returncode != 0:
             return None
         return _extract_json(proc.stdout)
+    except FileNotFoundError:
+        return None  # claude CLI not on PATH — let the API path try
     except Exception:
         return None
 
@@ -137,9 +146,23 @@ def refine(prompt: str, context: str | None = None, cfg: dict | None = None) -> 
     if context is None:
         context = load_user_context()
     system = _system_prompt(context)
-    obj = _via_api(prompt, system, cfg)
-    if obj is None:
-        obj = _via_cli(prompt, system, cfg)
+    # Backend selection. The live Coach Gate needs a FAST call, so the default
+    # is the API path (~1s) — used only when ANTHROPIC_API_KEY is set. The
+    # subscription `claude -p` path works but spins up a full agent session
+    # (~20-40s), far too slow for a submit-time hook, so it is OPT-IN only via
+    # WHETSTONE_BACKEND=cli (for the on-demand CLI, where a wait is acceptable).
+    # With no key and no opt-in, refine() returns "no refinement" and callers
+    # fall back to the instant local scaffold (suggest.py) or the /refine skill.
+    backend = os.environ.get("WHETSTONE_BACKEND", "").lower()
+    if backend == "cli":
+        backends = (_via_cli, _via_api)
+    else:  # default / "api": fast API path only
+        backends = (_via_api,)
+    obj = None
+    for b in backends:
+        obj = b(prompt, system, cfg)
+        if obj is not None:
+            break
     result = _normalize(obj)
     # guard: if the model flags refinement but gives no refined text, treat as no-op
     if result["needs_refinement"] and not result["refined"].strip():

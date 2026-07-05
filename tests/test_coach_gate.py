@@ -430,13 +430,15 @@ class CoachGateTest(unittest.TestCase):
                 self.assertPassThrough(out)
                 self.assertEqual(self.actions(home), ["pass"])
 
-    def test_real_refiner_unreachable_fail_open(self):
-        # No test seam at all: empty ANTHROPIC_API_KEY disables the API backend
-        # and the stripped PATH makes the `claude` CLI unreachable. The genuine
-        # refiner must fail open and the prompt must pass through.
+    def test_real_refiner_no_key_uses_local_scaffold(self):
+        # No test seam, empty ANTHROPIC_API_KEY, `claude` CLI unreachable: this
+        # is LOCAL mode (the keyless default). A coachable execute prompt must
+        # get an instant deterministic scaffold block (not an LLM call, never a
+        # crash), and it must NOT be sendable via `y` (it has <placeholders>).
         out = self.run_gate(ROUGH, fake=REAL_REFINER)
-        self.assertPassThrough(out)
-        self.assertEqual(self.actions(), ["pass"])
+        reason = self.assertBlock(out)
+        self.assertIn("<", reason)  # scaffold placeholder present
+        self.assertEqual(self.actions(), ["coach"])
 
     def test_malformed_stdin_fail_open(self):
         payloads = [

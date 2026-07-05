@@ -77,7 +77,7 @@ if installed(ups):
     print("  • hook already wired in settings.json")
 else:
     ups.append({"matcher": "", "hooks": [
-        {"type": "command", "command": cmd, "timeout": 15}]})
+        {"type": "command", "command": cmd, "timeout": 20}]})
     with open(settings_path, "w") as f: json.dump(s, f, indent=2)
     print("  ✓ UserPromptSubmit hook wired into settings.json")
 PY

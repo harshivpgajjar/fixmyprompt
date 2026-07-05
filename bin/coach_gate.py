@@ -48,6 +48,7 @@ from whetstone import (  # noqa: E402
     scorelog,
     scorer,
     state,
+    suggest,
 )
 
 _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it", "ship it", "go"}
@@ -121,19 +122,18 @@ def shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
-def _banner(refined: str, tip: str) -> str:
+def _banner(body: str, tip: str, sendable: bool = True) -> str:
     rule = "─" * 52
-    out = [
-        "── Whetstone · refined prompt (copied to clipboard) ──",
-        "",
-        refined.strip(),
-    ]
+    if sendable:
+        header = "── Whetstone · refined prompt (copied to clipboard) ──"
+        footer = "[y ⏎] send refined   ·   [⌘V, edit, ⏎] tweak   ·   [type anything] send your own"
+    else:
+        header = "── Whetstone · make this sharper ──"
+        footer = "fill the <…> (or add the missing piece), then press ⏎ to send"
+    out = [header, "", body.strip()]
     if tip.strip():
         out += ["", f"why: {tip.strip()}"]
-    out += [
-        rule,
-        "[y ⏎] send refined   ·   [⌘V, edit, ⏎] tweak   ·   [type anything] send your own",
-    ]
+    out += [rule, footer]
     return "\n".join(out)
 
 
@@ -167,6 +167,13 @@ def _refine(body: str, cfg: dict) -> dict:
 
 
 def main() -> None:
+    # RECURSION GUARD (must be first): the refiner shells out to `claude -p`,
+    # whose own UserPromptSubmit hook would re-enter this gate and, if it also
+    # coached, spawn another `claude -p` — an infinite loop. The refiner sets
+    # WHETSTONE_IN_REFINER on that subprocess; here it forces an instant
+    # passthrough so nested invocations never process anything.
+    if os.environ.get("WHETSTONE_IN_REFINER"):
+        sys.exit(0)
     try:
         data = _read_stdin()
         prompt = data.get("prompt")
@@ -223,37 +230,59 @@ def main() -> None:
             scorelog.log(prompt, features, ACTION_PASS, cfg)
             _emit_passthrough()
 
-        # 5. REFINE (fail-open). A crashing or junk-returning refiner must
-        # never block or error — catch locally so the pass is still recorded
-        # as exactly one ACTION_PASS log record.
-        try:
-            result = _refine(body, cfg)
-        except Exception:
-            result = None
-        if not isinstance(result, dict):
-            result = {}
-        refined = result.get("refined")
-        refined = refined.strip() if isinstance(refined, str) else ""
-        if not result.get("needs_refinement") or not refined:
-            scorelog.log(prompt, features, ACTION_PASS, cfg)
-            _emit_passthrough()
+        # 5. REFINE — pick the path by whether a fast LLM is configured.
+        #    LLM mode (ANTHROPIC_API_KEY set, or the test seam active): get an
+        #      AI-written rewrite; a crash/junk/decline fails OPEN (passthrough).
+        #    Local mode (no key — the default, works on any subscription with no
+        #      setup): an instant deterministic scaffold from the classifier's
+        #      gaps. Nothing to auto-send, so the user edits and resends.
+        llm_mode = bool(os.environ.get("ANTHROPIC_API_KEY")) or bool(
+            os.environ.get("WHETSTONE_FAKE_REFINE")
+        )
+        refined_sendable = ""  # complete text the user can send with `y`
+        banner_body = ""
+        tip = ""
+        if llm_mode:
+            try:
+                result = _refine(body, cfg)
+            except Exception:
+                result = None
+            if not isinstance(result, dict):
+                result = {}
+            r = result.get("refined")
+            r = r.strip() if isinstance(r, str) else ""
+            if not result.get("needs_refinement") or not r:
+                scorelog.log(prompt, features, ACTION_PASS, cfg)
+                _emit_passthrough()  # fail-open: LLM had nothing / errored
+            refined_sendable = r
+            banner_body = r
+            t = result.get("tip")
+            tip = t if isinstance(t, str) else ""
+        else:
+            scaffold = suggest.template(body, features)
+            if not scaffold:
+                scorelog.log(prompt, features, ACTION_PASS, cfg)
+                _emit_passthrough()  # nothing worth surfacing
+            banner_body = scaffold
+            refined_sendable = ""  # scaffold has <placeholders>; not auto-sendable
+            tip = ("Name the done-state and target so it's checkable — "
+                   "you get one pass instead of a back-and-forth.")
 
         # 6. PRESENT. Arm the one-shot bypass BEFORE emitting the block: if
         # arming fails we fall to the outer handler and pass through instead —
-        # never show a block without loop protection already on disk.
-        tip = result.get("tip")
-        tip = tip if isinstance(tip, str) else ""
-        state.set_pending(session_id, refined)
+        # never show a block without loop protection already on disk. Arming
+        # with an empty string (local mode) means a bare `y` will NOT auto-send
+        # (the resubmit branch requires non-empty refined) — it just passes.
+        state.set_pending(session_id, refined_sendable)
         state.mark_coached(session_id)
-        if not os.environ.get("WHETSTONE_FAKE_REFINE"):
-            # test seam guard: while the fake refiner is active (tests only),
-            # skip desktop side effects so tests never touch the real
-            # clipboard or tmux. No-op in production (env var unset).
-            _clipboard(refined)
+        if refined_sendable and not os.environ.get("WHETSTONE_FAKE_REFINE"):
+            # test seam guard: skip desktop side effects while the fake refiner
+            # is active. No-op in production (env var unset).
+            _clipboard(refined_sendable)
             if cfg.get("inject"):
-                _tmux_inject(refined, cfg.get("inject_delay_ms", 450))
+                _tmux_inject(refined_sendable, cfg.get("inject_delay_ms", 450))
         scorelog.log(prompt, features, ACTION_COACH, cfg)
-        _emit_block(_banner(refined, tip))
+        _emit_block(_banner(banner_body, tip, sendable=bool(refined_sendable)))
     except SystemExit:
         raise
     except BaseException:

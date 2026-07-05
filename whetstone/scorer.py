@@ -1,122 +1,343 @@
 """Prompt classifier — the local, deterministic, zero-latency brain of the gate.
 
-BASELINE implementation (correct interface, reasonable heuristics). The scorer
-is one of the two "hard" components; a Fable 5 subagent hardens the heuristics
-and adds the exhaustive test suite against the frozen interface below.
+Hardened heuristics tuned to the primary user's real prompting style:
+voice-dictated, typo-heavy, Hinglish-mixed, terse. Design goals, in order:
 
-Pure functions, no I/O, no network. classify() must run in well under a
-millisecond so it can sit in front of every keystroke-submitted prompt.
+1. PRECISION over recall — a wrongly-fired coach destroys trust, a miss costs
+   nothing. Every ambiguous signal resolves toward silence.
+2. Mode awareness — intentional exploration ("blow me away", "give me 7
+   options") is a *good* prompt, never a coaching target. Refinements of
+   existing work ("perfect it, it has some issues") are continuations of a
+   conversation, not fresh under-specified asks.
+3. Speed — pure functions, precompiled regexes, no I/O, no imports beyond
+   `re`. classify() runs in well under a millisecond.
+
+Frozen interface (other modules depend on it — see whetstone/__init__.py):
+    classify(prompt: str) -> dict  with exactly the FEATURE_KEYS keys
+    should_coach(features: dict, cfg: dict) -> bool
 """
 from __future__ import annotations
 
 import re
 
-# --- lexicons -------------------------------------------------------------
+# --------------------------------------------------------------------------
+# Continuations — acknowledgements / "keep going" / micro-directives at work
+# already in flight. Never coach these, in any language, with any typo.
+# --------------------------------------------------------------------------
 
-_CONTINUATION = re.compile(
-    r"^(y|ye|yes|yep|yeah|yup|ok|okay|k|sure|go|go on|continue|proceed|do it|"
-    r"send it|ship it|next|more|again|retry|try again|run it|run|do that|"
-    r"perfect|great|thanks|thank you|ty|nice|cool|no|nope|stop|wait|n)\b[\s.!]*$",
-    re.IGNORECASE,
+# Tokens that, in a <=4-word prompt, read as continuation/confirmation filler.
+_CONT_TOKENS = frozenset(
+    """
+    y ye yes yep yeah yup ya yess yesss ok okay okey oke k kk kay sure fine
+    go ahead on continue proceed resume next more again retry redo
+    do it that this them then run send ship try keep going carry finish
+    perfect great nice cool awesome amazing love thanks thank you ty thx
+    no nope nah stop wait hold up n hmm hm ah oh done good sounds looks lgtm
+    pls please plz now for the and same
+    haan han ha nahi karo kar chalo theek thik hai bhai yaar acha accha
+    badhiya sahi bas ruko krdo karde
+    """.split()
 )
 
+# Typo-prone continuation words worth fuzzy-matching (voice dictation / fast
+# typing produces contnie / cotnine / contionue and friends).
+_FUZZY_CONT = ("continue", "proceed", "perfect", "okay", "please", "thanks", "again")
+
+_TOKEN_CLEAN = re.compile(r"[^\w']+")
+
+
+def _damerau(a: str, b: str) -> int:
+    """Damerau-Levenshtein distance (transposition counts as one edit).
+    Only ever called on short tokens from <=4-word prompts, so O(len^2) is fine."""
+    la, lb = len(a), len(b)
+    if la == 0 or lb == 0:
+        return la or lb
+    prev2: list[int] = []
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        cur = [i] + [0] * lb
+        for j in range(1, lb + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                cur[j] = min(cur[j], prev2[j - 2] + 1)
+        prev2, prev = prev, cur
+    return prev[lb]
+
+
+def _cont_token(tok: str) -> bool:
+    if tok in _CONT_TOKENS:
+        return True
+    if len(tok) >= 5:  # fuzzy only for words long enough to carry a typo
+        for target in _FUZZY_CONT:
+            if abs(len(tok) - len(target)) <= 2 and _damerau(tok, target) <= 2:
+                return True
+    return False
+
+
+def _is_continuation(words: list[str], is_command: bool) -> bool:
+    if is_command or not words:
+        return False
+    if len(words) <= 2:
+        # "yes", "go", "run it", "fix it", "contnie", a lone emoji — a fresh
+        # task is never two words; treat as continuation-class, never coach.
+        return True
+    if len(words) <= 4:
+        toks = [_TOKEN_CLEAN.sub("", w).lower() for w in words]
+        toks = [t for t in toks if t]
+        return bool(toks) and all(_cont_token(t) for t in toks)
+    return False
+
+
+# --------------------------------------------------------------------------
+# Mode detection
+# --------------------------------------------------------------------------
+
+# Strong, explicit invitations to explore. These win over everything: a prompt
+# that grants creative freedom is intentional discovery, not an under-specified
+# task, even when it contains an execute verb ("make me 5 logo concepts").
 _EXPLORE = re.compile(
-    r"\b(blow me away|surprise me|go wild|go bold|be creative|get creative|"
-    r"something (new|unique|different|the world)|dont? know what i want|"
-    r"not sure what|give me (some )?(options|ideas|variations|variants|directions|"
-    r"concepts|inspiration)|explore|brainstorm|riff|play with|wow me|"
-    r"impress me|show me (some )?options)\b",
+    r"\b(?:"
+    r"blow (?:me|us) away|surprise me|wow me|impress me|amaze me|"
+    r"go (?:wild|wil|bold|big|crazy|nuts|all out)|get creative|be creative|be bold|"
+    r"have fun|freestyle|anything you want|up to you|you decide|your call|"
+    r"dealer'?s choice|full freedom|no wrong answers|"
+    r"something (?:new|fresh|unique|different|nobody|no one|the world)|"
+    r"(?:the )?world has (?:not|never|n'?t) seen|never been (?:done|seen)|"
+    r"not sure what i want|don'?t know what i want|open to (?:anything|ideas)|"
+    r"brainstorm|moodboard|mood board|spitball|riff on|"
+    r"kuch (?:naya|alag|hatke|creative)|"
+    # "give/show me ... options|ideas|..." with a short gap ("give me atleast 7
+    # options"). Plural nouns only — "give the user the option to X" is a task.
+    r"(?:give|show|send|get|make|draft|mock) (?:me|us) [^.\n]{0,40}?"
+    r"(?:options|ideas|concepts|directions|variations|variants|alternatives|explorations|proposals)\b|"
+    # "7 options", "a few directions", "a couple of looks" — but not when they
+    # feed into a surface ("add 3 options to the dropdown" is a feature).
+    r"(?:a few|a couple(?: of)?|several|multiple|at ?least \d+|\d+)\s+(?:different )?"
+    r"(?:options|ideas|concepts|directions|variations|variants|versions|looks|styles|approaches)\b"
+    r"(?!\s+(?:to|in|into|inside|on)\b)|"
+    r"what are (?:some|a few|the) (?:options|ideas|ways|approaches)|"
+    r"how (?:should|could|might) (?:we|i)\b"
+    r")",
     re.IGNORECASE,
 )
 
-_EXECUTE = re.compile(
-    r"\b(build|create|make|add|implement|fix|change|update|refactor|remove|"
-    r"delete|rename|migrate|write|set up|setup|wire|integrate|deploy|debug|"
-    r"connect|convert|generate|configure|install|replace)\b",
+# Opinion / vision musings ("people these days love actualy good design...
+# - according to me"). Weak explore signal: only counts when there is no
+# execute verb and no refinement-of-existing anaphora.
+_OPINION = re.compile(
+    r"(?:"
+    r"according to me|in my opinion|\bimo\b|"
+    r"\bi (?:really |actually |personally )?(?:love|like|hate|prefer|believe|think|feel)\b|"
+    r"people (?:these days )?(?:love|want|hate|crave|are hunting|are looking)|"
+    r"that(?:'?s| is) what people (?:want|love|are hunting)"
+    r")",
     re.IGNORECASE,
 )
+
+# Refinement of existing work — "i love tide, perfect it. it has some issues".
+# This is a continuation of a project in flight, not a fresh explore or a fresh
+# execute ask. Classified as mode "other"; the word gate keeps it silent.
+_REFINEMENT = re.compile(
+    r"(?:"
+    r"\b(?:perfect|polish|refine|tweak|smooth out|tighten(?: up)?|iterate on) (?:it|this|that|them)\b|"
+    r"\b(?:it|this|that) (?:still )?(?:has|got) (?:a few |some |few |many |lots of )?"
+    r"(?:issues?|problems?|bugs?|quirks?|rough edges)\b|"
+    r"\balmost (?:there|perfect|done)\b|\bso close\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Information questions are discovery, not tasks — "how do i fix the deploy"
+# should never be coached as an under-specified execute prompt. ("when" is
+# deliberately absent: "when the user clicks, open the modal" is a task.)
+_QUESTION = re.compile(
+    r"^(?:what|what's|whats|how|how's|hows|why|where|which|who|"
+    r"is there|are there|do we|does|can i|could i|should i|should we|would it)\b",
+    re.IGNORECASE,
+)
+
+# Task verbs (English + the user's Hinglish), plus "X needs work" phrasings,
+# which are fix-requests without an imperative verb.
+_EXECUTE = re.compile(
+    r"\b(?:"
+    r"build|create|make|add|implement|fix|change|update|refactor|remove|delete|"
+    r"rename|migrate|write|set up|setup|wire|integrate|deploy|debug|connect|"
+    r"convert|generate|configure|install|replace|improve|enhance|redo|rework|"
+    r"rebuild|redesign|resize|move|swap|reorder|restructure|extract|split|"
+    r"merge|combine|optimi[sz]e|speed up|clean up|hook up|get rid of|hide|"
+    r"align|center|centre|adjust|"
+    r"karo|kar do|karde|krdo|banao|bana do|hatao|badlo|lagao|laga do|jodo|"
+    r"thik kar|theek kar"
+    r")\b"
+    r"|\bneeds? (?:a lot of |some |more |lots of )?"
+    r"(?:work|love|attention|polish|improvements?|fixing|cleanup|help)\b"
+    r"|\bneeds? to be (?:fixed|redone|rebuilt|updated|changed|reworked|improved)\b",
+    re.IGNORECASE,
+)
+
+# --------------------------------------------------------------------------
+# Feature lexicons
+# --------------------------------------------------------------------------
 
 _DESIGN = re.compile(
-    r"\b(design|ui|ux|layout|hero|landing|page|website|site|logo|brand|"
-    r"color|colour|palette|font|typeface|typography|theme|aesthetic|"
-    r"visual|style|mockup|preloader|animation|section|look|vibe)\b",
+    r"\b(?:"
+    r"design|redesign|ui|ux|layout|hero|landing|page|website|site|webpage|"
+    r"homepage|portfolio|logo|brand(?:ing)?|color|colour|palette|font|typeface|"
+    r"typography|theme|aesthetic|visual|styles?|styling|mockup|moodboard|"
+    r"preloader|animation|section|looks|look and feel|the look|vibe|beautiful|"
+    r"pretty|sleek|minimal(?:ist)?|nav(?:bar)?|header|footer|responsive"
+    r")\b",
     re.IGNORECASE,
 )
 
 _REFERENCE = re.compile(
-    r"(https?://|\blike\b.*\b(this|that|these|the ones?)\b|similar to|"
-    r"inspired by|reference|in the style of|based on|à la|a la|"
-    r"like (my|the) [a-z]+|\.(com|io|app|design|studio)\b)",
+    r"(?:"
+    r"https?://\S+|www\.\S+|\S+\.(?:com|io|app|dev|design|studio|net|org|co|ai)\b|"
+    r"\blike (?:this|that|these|those|the \w+|my \w+|our \w+|your \w+)\b|"
+    r"\bsimilar to\b|\bsame as\b|\binspired by\b|\bin the style of\b|\bstyle of\b|"
+    r"\bbased on\b|\breference\b|\brefer to\b|\bà la\b|\ba la\b|\bmatch(?:ing)? the\b|"
+    r"\bscreenshot\b|\battached\b|\bsee the (?:image|photo|picture|mock|mockup)\b|"
+    r"\bthe way \w+ does\b|\bjaisa\b|\bjaise\b"
+    r")",
     re.IGNORECASE,
 )
 
+# Success / expected-behavior criteria. "\bshould\b" is the workhorse for this
+# user ("call should call that number"). Bare "needs to be better" is vague
+# desire, not a criterion, and deliberately does NOT match.
 _DONE = re.compile(
-    r"(done means|acceptance criteria|definition of done|so that|it should\b|"
-    r"must\b|needs? to\b|the (goal|result) is|success is|when (it|this)\b|"
-    r"expect(ed)?\b|verify|test(s|ing|ed)?\b|passes?\b|works? when)",
+    r"(?:"
+    r"done (?:means|when|if)|acceptance criteria|definition of done|"
+    r"\bso that\b|\bshould(?:n'?t| not)?\b|\bmust(?: not)?\b|"
+    r"\bthe (?:goal|result|outcome) is\b|success (?:is|means|looks like)|"
+    r"\bworks? when\b|\bexpect(?:ed|ing)?\b|\bverify\b|\bmake sure\b|\bensure\b|"
+    r"\bconfirm\b|\btests? (?:pass|passes|green)\b|\bpasses\b|\buntil (?:it|the)\b|"
+    r"\bwhen (?:i|you|the user|a user|someone) (?:click|tap|press|open|scroll|type|hover|submit)|"
+    r"\bhona chahiye\b|\bchahiye\b"
+    r")",
     re.IGNORECASE,
 )
 
+# Constraints: scope limits, tech choices, placement, concrete values, files.
+# "don't like/know/..." is a complaint, not a constraint — excluded.
 _CONSTRAINT = re.compile(
-    r"(only|don'?t|do not|never|without|must not|avoid|keep|use\b|"
-    r"instead of|not the|except|limit|max\b|min\b|within|no more than|"
-    r"mobile[- ]first|in [a-z0-9./]+\.(ts|tsx|js|py|kt|swift|css|html|go|rs))",
+    r"(?:"
+    r"\bonly\b|\bdon'?t (?!like|love|know|care|think|want|worry)\w+|\bdo not\b|"
+    r"\bnever\b|\bwithout\b|\bmust not\b|\bavoid\b|"
+    r"\bkeep (?:the|it|this|that|them|all|everything|existing|current|same|my|our|your)\b|"
+    r"\bleave (?:the|it)\b|\buse\b|\busing\b|\binstead of\b|\bexcept\b|\blimit\b|"
+    r"\bmax\b|\bmin\b|\bwithin\b|\bno more than\b|\bat most\b|\bexactly\b|"
+    r"\bmobile[- ]first\b|\bnot the\b|"
+    r"\bnext to\b|\b(?:on|at|to) the (?:left|right|top|bottom)\b|"
+    r"\babove the\b|\bbelow the\b|\bbetween the\b|"
+    r"\b\d+(?:\.\d+)?(?:px|pt|em|rem|%|ms|s|sec|seconds?|minutes?|kb|mb)\b|"
+    r"#[0-9a-fA-F]{3,8}\b|"
+    r"\bmat (?:karo|kar|karna)\b|\bnahi chahiye\b|"
+    r"\b[\w./~-]+\.(?:py|ts|tsx|js|jsx|css|html|json|md|kt|swift|go|rs|java|rb|php|sql|ya?ml|sh|txt|csv)\b"
+    r")",
     re.IGNORECASE,
 )
 
-_NUMBERED = re.compile(r"(^|\n)\s*(\d+[.)]|[-*])\s+\S", re.MULTILINE)
+# Vague anaphora with no anchor — "make it better", "fix everything".
+_VAGUE_TARGET = re.compile(
+    r"\b(?:make|fix|improve|update|change) (?:it|this|that|things|stuff|everything)\b",
+    re.IGNORECASE,
+)
 
-_CODE_FENCE = re.compile(r"```")
-_LOGLINE = re.compile(r"^\s*(\S+/|\[|\d{2,4}[-:]|at\s|File\s|\w+Error|Traceback|"
-                      r"\s{2,}at\b|npm\s|error:|warning:|\+|\-\-)", re.IGNORECASE)
+# Structured lists: newline-anchored (classic) or inline voice-dictated
+# ("1. do x 2. do y 3. do z") — both imply the user decomposed the work.
+_NUMBERED_LINES = re.compile(r"(?:^|\n)\s*(?:\d{1,2}[.)]|[-*•])\s+\S")
+_NUMBERED_INLINE = re.compile(r"\b\d{1,2}[.)]\s+\S")
+
+# --------------------------------------------------------------------------
+# Paste detection — code blocks, stack traces, logs, diffs, JSON blobs.
+# --------------------------------------------------------------------------
+
+_CODE_FENCE = re.compile(r"```|~~~")
+_JSON_BLOB = re.compile(r"^\s*[\[{]")
+_LOG_LINE = re.compile(
+    r"^\s*(?:"
+    r"at\s+\S+\s*\(|at\s+\S+:\d+|File \"|Traceback|Caused by|"
+    r"\S*(?:Error|Exception)\b[: ]|"
+    r"\[\d|\[\w+\]|\d{4}-\d{2}-\d{2}|\d{2}:\d{2}:\d{2}|"
+    r"npm (?:ERR|WARN)|error(?:\[\w+\])?:|warning:|fatal:|panic:|"
+    r"\+\+\+|---|@@ |diff --git|index [0-9a-f]+\.\.|"
+    r">>> |\$ |"
+    r"(?:def|class|function|fn|func)\s+\w+|import\s+[\w{\"'@.]|"
+    r"from\s+[\w.\"'@/]+\s+import|(?:const|let|var)\s+\w+\s*=|"
+    r"return[ ;(]|if\s*\(|for\s*\(|while\s*\(|"
+    r"[{}]\s*$|.*[;{]\s*$|</?\w+|/\S+/"
+    r")"
+)
 
 
 def _looks_like_paste(prompt: str) -> bool:
     if _CODE_FENCE.search(prompt):
         return True
+    stripped = prompt.strip()
+    if len(stripped) >= 120 and _JSON_BLOB.match(stripped) and stripped.endswith(("}", "]")):
+        return True
     lines = [ln for ln in prompt.splitlines() if ln.strip()]
-    if len(lines) >= 4:
-        hits = sum(1 for ln in lines if _LOGLINE.match(ln))
+    if len(lines) >= 3:
+        hits = sum(1 for ln in lines if _LOG_LINE.match(ln))
         if hits / len(lines) >= 0.5:
             return True
     return False
 
 
+# --------------------------------------------------------------------------
+# classify
+# --------------------------------------------------------------------------
+
 def classify(prompt: str) -> dict:
-    prompt = prompt or ""
+    if not isinstance(prompt, str):
+        prompt = ""
     stripped = prompt.strip()
     words = re.findall(r"\S+", stripped)
     wc = len(words)
 
-    is_command = bool(stripped[:1] in ("/", "!", "#"))
-    is_continuation = bool(_CONTINUATION.match(stripped)) or (wc <= 2 and not is_command)
-    looks_paste = _looks_like_paste(prompt)
+    is_command = stripped[:1] in ("/", "!", "#")
+    looks_paste = _looks_like_paste(prompt) if stripped else False
+    is_continuation = (not looks_paste) and _is_continuation(words, is_command)
 
+    is_design = bool(_DESIGN.search(prompt))
+    has_reference = bool(_REFERENCE.search(prompt))
+
+    numbered = bool(_NUMBERED_LINES.search(prompt)) or len(_NUMBERED_INLINE.findall(prompt)) >= 2
+    has_done = bool(_DONE.search(prompt)) or numbered
+    has_constraints = bool(_CONSTRAINT.search(prompt)) or numbered
+
+    # --- mode (precedence: explore > execute > refinement > opinion > other)
     explore = bool(_EXPLORE.search(prompt))
     execute = bool(_EXECUTE.search(prompt))
-    is_design = bool(_DESIGN.search(prompt))
+    question = bool(_QUESTION.match(stripped))
+    refinement = bool(_REFINEMENT.search(prompt))
 
     if explore:
         mode = "explore"
-    elif execute:
+    elif execute and not question:
         mode = "execute"
+    elif refinement:
+        mode = "other"  # tightening existing work — a continuation of flow
+    elif _OPINION.search(prompt) and not execute:
+        mode = "explore"  # taste/vision musing — intentional discovery
     else:
         mode = "other"
 
-    has_reference = bool(_REFERENCE.search(prompt))
-    has_done = bool(_DONE.search(prompt)) or bool(_NUMBERED.search(prompt))
-    has_constraints = bool(_CONSTRAINT.search(prompt)) or bool(_NUMBERED.search(prompt))
-
+    # --- gaps (execute mode only — coaching targets, human-readable)
     gaps: list[str] = []
     if mode == "execute":
         if not has_done:
             gaps.append("no acceptance criteria")
-        if is_design and not has_reference and not has_constraints:
+        if is_design and not (has_reference or has_constraints or has_done):
             gaps.append("design ask with no reference or constraints")
         if wc < 8:
             gaps.append("very terse for a build request")
+        if _VAGUE_TARGET.search(prompt) and not has_done and not has_constraints:
+            gaps.append("vague target (what exactly should change?)")
 
-    quality = _quality(mode, wc, has_done, has_constraints, has_reference, is_design, gaps)
+    quality = _quality(mode, wc, prompt, has_done, has_constraints, has_reference, gaps, is_design)
 
     return {
         "word_count": wc,
@@ -133,7 +354,7 @@ def classify(prompt: str) -> dict:
     }
 
 
-def _quality(mode, wc, has_done, has_constraints, has_reference, is_design, gaps) -> float:
+def _quality(mode, wc, prompt, has_done, has_constraints, has_reference, gaps, is_design) -> float:
     if mode == "explore":
         return 1.0  # intentional exploration is not "low quality"
     if mode == "other":
@@ -143,20 +364,34 @@ def _quality(mode, wc, has_done, has_constraints, has_reference, is_design, gaps
         score += 0.3
     if has_constraints:
         score += 0.2
-    if is_design and has_reference:
-        score += 0.1
+    if has_reference:
+        # on a design ask, "like <site>" IS the acceptance criterion
+        score += 0.25 if is_design else 0.1
     if wc >= 12:
         score += 0.1
-    score -= 0.1 * len(gaps)
-    return max(0.0, min(1.0, score))
+    elif wc >= 8:
+        score += 0.05
+    if wc >= 40:
+        score += 0.05
+    # multi-clause structure (commas / newlines / sentences) shows decomposition
+    if prompt.count(",") + prompt.count(";") + prompt.count("\n") >= 2:
+        score += 0.05
+    # penalties for gaps not already priced in via the missing has_done bonus
+    for gap in gaps:
+        if not gap.startswith("no acceptance"):
+            score -= 0.1
+    return round(max(0.0, min(1.0, score)), 4)
 
+
+# --------------------------------------------------------------------------
+# should_coach — the silence gate
+# --------------------------------------------------------------------------
 
 def should_coach(features: dict, cfg: dict) -> bool:
-    """The silence gate. Pure decision — no I/O. State checks (cooldown, pending,
-    sigil) are applied by the hook around this. Returns True only when there is
-    plausibly something worth offering."""
-    mode = cfg.get("mode", "off")
-    if mode == "off":
+    """The silence gate. Pure decision — no I/O. State checks (cooldown,
+    pending, sigil) are applied by the hook around this. Returns True only
+    when there is plausibly something worth offering."""
+    if cfg.get("mode", "off") == "off":
         return False
     if features.get("is_command"):
         return False

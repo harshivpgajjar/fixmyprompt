@@ -29,10 +29,26 @@ Prompt quality is the biggest lever most Claude Code users have left, and nobody
 - **Prompt scorer** — a deterministic local function (no LLM). Scores any prompt on: `is_continuation`, `mode` (explore/execute/unknown), `has_constraints`, `has_done_criteria`, `has_reference` (design asks). Appends to `~/.claude/memory/prompt-log.jsonl`.
 - **Weekly report** — extend the existing Saturday `com.claude.weekly-audit` to read `prompt-log.jsonl` and report the trend ("execute-mode prompts self-sufficient: 41% → 73% this month") + the top 2 recurring gaps. This is the *teaching made measurable* — the feature no existing tool has.
 
-### Phase 2 — Gentle live coaching (the "before enter" feel, within tool limits)
-- **`UserPromptSubmit` hook** with a **fast local gate (no LLM):** skip continuations, slash commands, resubmits, and explore-mode signals instantly. Only engage on execute-mode task-kickoffs that are missing a key element.
-- When it engages: `decision:block` + a `systemMessage` showing a template-refined suggestion + one tip + "resend, or prefix `!` to send as-is." Template-first = instant, no token cost; upgrade to an optional async Haiku pass only if templates prove too shallow.
-- When it does NOT block: optionally inject silent `additionalContext` that improves the outcome invisibly (e.g. explore mode → "produce 5 distinct hero variants seeded from design-taste.md").
+### Phase 2 — "Coach Gate": the enter → refine → send flow (Fable 5 design, 2026-07-05)
+
+The literal dream (edit text in place) is impossible — no hook API can pre-fill the input line. But the achievable version is ~90% of it, and inside tmux it's ~100%.
+
+**The flow:** you hit Enter on a rough prompt → a `UserPromptSubmit` hook BLOCKS it (never reaches the model) → your refined version is displayed AND copied to your clipboard → you choose, in one keystroke each:
+- **`y` + Enter** → sends the refined version (zero paste). Legal within constraints: the hook can't rewrite your prompt, but it CAN pass `y` through with the refined text attached as hidden `additionalContext` — the model acts on the refined version.
+- **⌘V, tweak, Enter** → paste the refined text, edit it, send your edit.
+- **anything else + Enter** → sends exactly what you typed (your original or something new).
+
+**Loop-proof by design:** a one-shot, session-scoped bypass flag (`~/.claude/prompt-coach/pending/<session_id>.json`, 10-min TTL, consumed on read) guarantees the hook can NEVER block twice in a row. The second Enter always goes through → no refine loops, ever, and "override" costs exactly one extra Enter.
+
+**Silence gates (all local, ~0ms, never nag):** pass straight through if the prompt starts with `/ ! #`, is <12 words, matches a continuation regex (`yes/ok/go/continue/do it/…`), looks like a pasted log/code block, or the session was coached in the last N minutes. Then Haiku's own `needs_refinement:false` suppresses the block on already-good long prompts — so the gate only appears when there's a genuinely better version to offer.
+
+**Refiner:** `claude-haiku-4-5` via curl, structured JSON out (`{needs_refinement, refined}`), fail-open on any error/timeout (prompt just sends normally — the coach can never lock you out). ~0.8–2.5s only on coached prompts (~20%); ~$0.002–0.005 each (pennies). Reads `core.md` + `design-taste.md` so refinement is voice- and taste-aware, and mode-aware (never "fixes" an explore prompt).
+
+**The tmux tier (opt-in `PCOACH_INJECT=1`) — the actual dream:** if you run Claude Code inside tmux, after the block the hook fires `tmux set-buffer` + `paste-buffer -p` targeted at your pane — the refined text **materializes in your input line, editable, ~0.5s after you hit Enter.** Pane-targeted (survives cmd-tab), bracketed-paste (multi-line safe), no macOS permission prompts. Clipboard is the fallback if the redraw race misses. (iTerm2 AppleScript and a guarded single ⌘V via System Events are lower tiers for non-tmux setups.)
+
+**Whisper fallback:** prompts that fall just *under* the gate get silent `additionalContext` (e.g. explore mode → "produce 5 distinct hero variants from design-taste.md") — useful even when the coach stays quiet.
+
+**Rejected:** a PTY wrapper around the `claude` binary (the only path to literal in-place editing) — re-implements the whole line editor, breaks on every UI update, corrupts input on failure. tmux paste-buffer gives ~90% of it at ~2% of the risk.
 
 ### Phase 3 — Distributable "Whetstone" plugin (for people everywhere)
 - Strip personal files → generic default rubric + taste template. Aggressiveness as a setting (`off` / `gentle` / `assertive`). Package per the verified plugin structure; ship a marketplace entry. Bundles its own weekly prompt-quality report.

@@ -149,11 +149,19 @@ def _via_cli(prompt: str, system: str, cfg: dict) -> dict | None:
         return None
 
 
-def refine(prompt: str, context: str | None = None, cfg: dict | None = None) -> dict:
+def refine(prompt: str, context: str | None = None, cfg: dict | None = None,
+           cwd: str | None = None) -> dict:
     """Return {needs_refinement, mode, refined, tip}. Never raises; fail-open."""
     cfg = cfg or config.load()
     if context is None:
         context = load_user_context()
+    try:  # per-project hint + the user's recurring acceptance criteria
+        from . import context_hints
+        block = context_hints.context_block(cwd)
+        if block:
+            context = (context + "\n\n" + block).strip()
+    except Exception:
+        pass
     system = _system_prompt(context)
     # Backend selection. The live Coach Gate needs a FAST call, so the default
     # is the API path (~1s) — used only when ANTHROPIC_API_KEY is set. The

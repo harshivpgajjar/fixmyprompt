@@ -15,3 +15,7 @@ config.json
 # Fable research scratch — experimental, may touch credentials; never commit
 scratch/
 RESEARCH-*.md
+
+# context-hints runtime stores (seeded per user)
+criteria.json
+projects.json

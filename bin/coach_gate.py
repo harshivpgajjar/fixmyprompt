@@ -166,6 +166,16 @@ def shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def _with_project(scaffold: str, cwd: str | None) -> str:
+    """Append the per-project clarifying hint to a local scaffold, if any."""
+    try:
+        from whetstone import context_hints
+        extra = context_hints.scaffold_extra(cwd)
+        return scaffold + "\n" + extra if extra else scaffold
+    except Exception:
+        return scaffold
+
+
 def _banner(body: str, tip: str, kind: str = "refined") -> str:
     rule = "─" * 52
     if kind == "refined":
@@ -192,7 +202,7 @@ def _read_stdin() -> dict:
         return {}
 
 
-def _refine(body: str, cfg: dict) -> dict:
+def _refine(body: str, cfg: dict, cwd: str | None = None) -> dict:
     # test seam — active ONLY when WHETSTONE_FAKE_REFINE is set (never set in
     # production; when unset this function is exactly refiner.refine).
     # The env value is a JSON refine-result, or the sentinel "RAISE" to
@@ -210,7 +220,7 @@ def _refine(body: str, cfg: dict) -> dict:
         if fake == "RAISE":
             raise RuntimeError("test seam: simulated refiner crash")
         return json.loads(fake)
-    return refiner.refine(body, cfg=cfg)
+    return refiner.refine(body, cfg=cfg, cwd=cwd)
 
 
 def main() -> None:
@@ -243,6 +253,11 @@ def main() -> None:
             norm = prompt.strip().lower().rstrip(".! ")
             if norm in _CONFIRM and refined.strip():
                 scorelog.log(prompt, scorer.classify(prompt), ACTION_ACCEPT, cfg)
+                try:  # feed accepted refinements into the criteria memory
+                    from whetstone import context_hints
+                    context_hints.learn_criteria(refined)
+                except Exception:
+                    pass
                 _emit_accept(refined)
             # Anything else — edited text, an override, a decline, even a bare
             # confirm when there is no refined text to send — passes through.
@@ -315,7 +330,7 @@ def main() -> None:
                         "you get one pass instead of a back-and-forth.")
         if llm_mode:
             try:
-                result = _refine(body, cfg)
+                result = _refine(body, cfg, cwd=cwd)
             except Exception:
                 result = None
             if not isinstance(result, dict):
@@ -334,13 +349,13 @@ def main() -> None:
                 scaffold = suggest.template(body, features)
                 if scaffold:
                     refined_sendable = ""
-                    banner_body = scaffold
+                    banner_body = _with_project(scaffold, cwd)
                     tip = scaffold_tip
         else:
             scaffold = suggest.template(body, features)
             if scaffold:
                 refined_sendable = ""
-                banner_body = scaffold
+                banner_body = _with_project(scaffold, cwd)
                 tip = scaffold_tip
 
         # No refinement/scaffold produced. In tutorial mode, affirm the prompt so

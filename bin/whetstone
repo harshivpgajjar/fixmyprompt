@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from whetstone import config, daemon, refiner, report, scorer, suggest  # noqa: E402
+from whetstone import config, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
 
 _LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.whetstone.daemon.plist"
 
@@ -17,11 +17,13 @@ _LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "co
 def cmd_report(args):
     days = int(args[0]) if args else 7
     print(report.summarize(days))
+    print(outcome.summary(days=30))
 
 
 def cmd_progress(args):
     period = args[0] if args and args[0] in ("day", "week", "month") else "week"
     print(report.progress(period))
+    print(outcome.summary(days=30))
 
 
 def cmd_suggest(args):

@@ -55,13 +55,29 @@ class ReportTest(unittest.TestCase):
         out = self.rp.summarize(days=7)
         self.assertIn("No substantive prompts", out)
 
-    def test_explore_counts_as_self_sufficient(self):
+    def test_explore_does_not_inflate_execute_rate(self):
+        # explore-only data must NOT report a bogus "100%" execute-mode
+        # self-sufficiency — the headline is computed over EXECUTE prompts only.
         for _ in range(3):
             self.sl.log("blow me away with five hero directions please", self._feat(
                 mode="explore", has_done_criteria=False, has_constraints=False,
                 quality=1.0, gaps=[]), "pass")
         out = self.rp.summarize(days=7)
-        self.assertIn("100%", out)
+        self.assertNotIn("100%", out)
+        self.assertIn("3 substantive prompts", out)
+
+    def test_execute_rate_excludes_explore(self):
+        # 2 coached execute (0% self-sufficient) + 10 explore -> headline 0%, not
+        # inflated by the explore prompts.
+        for _ in range(2):
+            self.sl.log("fix the mobile version", self._feat(
+                mode="execute", has_done_criteria=False, has_constraints=False,
+                quality=0.3, gaps=["no acceptance criteria"]), "coach")
+        for _ in range(10):
+            self.sl.log("go wild with the hero", self._feat(
+                mode="explore", quality=1.0, gaps=[]), "pass")
+        out = self.rp.summarize(days=7)
+        self.assertIn("self-sufficiency: 0%", out)
 
 
 if __name__ == "__main__":

@@ -48,6 +48,8 @@ DEFAULTS = {
     # rewrites with y-to-send instead of the fill-in scaffold.
     "use_daemon": False,
     "daemon_timeout": 4.0,  # covers a cold first request (~2.6s); warm is ~1.7s
+    # remembers the mode `daemon on` overrode, so `daemon off` can restore it.
+    "daemon_prior_mode": None,
     # coaching only engages when the composite quality score is below this.
     "coach_below_quality": 0.7,
     # tutorial mode: coach EVERY real prompt (well-formed ones get an

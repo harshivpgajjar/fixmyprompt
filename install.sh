@@ -21,6 +21,9 @@ mkdir -p "$DEST"
 rsync -a --delete \
   --exclude 'prompt-log.jsonl' --exclude 'config.json' \
   --exclude 'pending/' --exclude 'cooldown/' --exclude 'backstop.json' \
+  --exclude '.backfilled' --exclude 'criteria.json' --exclude 'projects.json' \
+  --exclude 'refine.sock' --exclude 'daemon.pid' --exclude 'daemon*.log' \
+  --exclude 'alerts.log' --exclude 'RESEARCH-*' --exclude 'scratch/' \
   --exclude '.git/' --exclude 'tests/' --exclude '__pycache__/' \
   "$SRC"/ "$DEST"/
 echo "  ✓ runtime synced"

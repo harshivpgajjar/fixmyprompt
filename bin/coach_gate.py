@@ -55,11 +55,14 @@ _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it
 
 
 def _daemon_up() -> bool:
-    """True if the warm-refine daemon is running (fast subscription rewrites, no key)."""
+    """True if the daemon backend should be used: the feature is enabled
+    (use_daemon) AND the process is actually running."""
     if os.environ.get("WHETSTONE_FAKE_REFINE"):
         return False  # test seam owns the refine path; don't consult the daemon
     try:
-        from whetstone import daemon
+        from whetstone import config, daemon
+        if not config.load().get("use_daemon"):
+            return False
         return daemon.is_running()
     except Exception:
         return False
@@ -303,6 +306,13 @@ def main() -> None:
         # running on the user's subscription) asks for the missing piece and
         # teaches the pattern. Zero added latency; nothing to time out.
         if mode == "whisper":
+            # Only whisper when there's genuinely a missing piece to ask about.
+            # In tutorial mode should_coach passes well-formed and explore prompts
+            # too — whispering "it's under-specified" at those inverts the
+            # contract, so pass them through silently.
+            if not features.get("gaps"):
+                scorelog.log(prompt, features, ACTION_PASS, cfg)
+                _emit_passthrough()
             state.mark_coached(session_id)  # respect the cooldown between nudges
             scorelog.log(prompt, features, ACTION_COACH, cfg)
             ctx = _whisper_context(features)
@@ -363,10 +373,20 @@ def main() -> None:
         # and pass through (fail-open).
         if banner_body is None:
             if tutorial:
+                # Tutorial always shows something — but only AFFIRM when the
+                # prompt is genuinely well-formed. If it has gaps (and the LLM
+                # just failed/declined), show the scaffold, never a false
+                # "looks good" on an under-specified prompt.
+                scaffold = suggest.template(body, features)
                 refined_sendable = ""
-                banner_body = suggest.affirm(features)
-                banner_kind = "affirm"
-                tip = ""
+                if scaffold:
+                    banner_body = _with_project(scaffold, cwd)
+                    banner_kind = "scaffold"
+                    tip = scaffold_tip
+                else:
+                    banner_body = suggest.affirm(features)
+                    banner_kind = "affirm"
+                    tip = ""
             else:
                 scorelog.log(prompt, features, ACTION_PASS, cfg)
                 _emit_passthrough()

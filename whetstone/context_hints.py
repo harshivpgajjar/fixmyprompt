@@ -63,8 +63,29 @@ _BLOCK_CRITERIA = 6      # how many criteria context_block() surfaces
 _SIGNALS = ("no ", "≥", ">=", "px", "clean", "pass", "done when", "should", "works when")
 # ...or a number+unit.
 _UNIT = re.compile(r"\d+\s*(?:px|ms|s|sec|%|kb|mb|gb|pt|em|rem|fps|chars?|words?)\b", re.IGNORECASE)
-# never store anything secret-shaped.
-_SECRET = re.compile(r"\b(?:sk-|r8_|aiza)|token|password", re.IGNORECASE)
+
+
+# bare secret words (any occurrence) — catches "the password should be …" which
+# the structured scorelog._SECRET (needs key=value form) misses.
+_SECRET_WORD = re.compile(
+    r"\b(?:sk-|r8_|aiza|ghp_|xox|-----BEGIN|password|passwd|secret|token|"
+    r"api[_-]?key|apikey|credential|private[_-]?key|bearer)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_secret(text: str) -> bool:
+    """A criterion clause is secret-bearing if EITHER the codebase's structured
+    detector (key=value / known prefixes) OR a bare secret word matches. Neither
+    alone is a superset, so we OR them."""
+    text = text or ""
+    if _SECRET_WORD.search(text):
+        return True
+    try:
+        from . import scorelog
+        return bool(scorelog._SECRET.search(text))
+    except Exception:
+        return False
 
 
 # --- stores (seed-on-first-use, fail-open) -----------------------------------
@@ -201,8 +222,8 @@ def learn_criteria(text: str) -> None:
             low = clause.lower()
             if len(low) > 100 or len(low.split()) < 2:
                 continue  # not a plausible criterion
-            if _SECRET.search(low):
-                continue  # never store secrets
+            if _has_secret(clause):
+                continue  # never store secrets (canonical detector)
             if not (any(s in low for s in _SIGNALS) or _UNIT.search(low)):
                 continue  # no criteria signal
             if low in seen:

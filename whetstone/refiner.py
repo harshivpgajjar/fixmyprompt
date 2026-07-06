@@ -26,9 +26,11 @@ _EMPTY = {"needs_refinement": False, "mode": "other", "refined": "", "tip": ""}
 
 
 def _daemon_up() -> bool:
-    """True if the warm-refine daemon is running (fast subscription backend)."""
+    """True if the daemon backend should be used: enabled (use_daemon) AND running."""
     try:
         from . import daemon
+        if not config.load().get("use_daemon"):
+            return False
         return daemon.is_running()
     except Exception:
         return False
@@ -60,11 +62,45 @@ def load_user_context() -> str:
     return "\n\n".join(parts)
 
 
+def _balanced_json_blocks(text: str) -> list[str]:
+    """Yield each top-level {...} substring with balanced braces (string-aware),
+    so trailing model chatter containing braces can't corrupt the candidate the
+    way a greedy `\\{.*\\}` does."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text[i] == "{":
+            depth = 0
+            in_str = esc = False
+            j = i
+            while j < n:
+                c = text[j]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                elif c == '"':
+                    in_str = True
+                elif c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        out.append(text[i:j + 1])
+                        i = j
+                        break
+                j += 1
+        i += 1
+    return out
+
+
 def _extract_json(text: str) -> dict | None:
     if not text:
         return None
-    # direct parse, else first {...} block
-    for candidate in (text, *re.findall(r"\{.*\}", text, re.DOTALL)):
+    # direct parse, else each balanced {...} block
+    for candidate in (text, *_balanced_json_blocks(text)):
         try:
             obj = json.loads(candidate)
             if isinstance(obj, dict) and "needs_refinement" in obj:
@@ -176,14 +212,16 @@ def refine(prompt: str, context: str | None = None, cfg: dict | None = None,
     else:  # default / "api": fast API path only
         backends = (_via_api,)
     obj = None
-    # Warm-daemon path first when it's up: ~1.5s subscription rewrites, no key,
-    # no credential handling. Returns a full result dict already; fail-open None.
+    # Warm-daemon path first when it's up: ~1.5s subscription rewrites, no key.
+    # When the daemon ANSWERS (dict), it's authoritative — return its verdict,
+    # including a definitive "nothing to add", so we never make a redundant
+    # second LLM call. Only a None (daemon down/timeout/miss) falls through.
     if _daemon_up():
         from . import daemon
         d = daemon.refine(prompt, timeout=cfg.get("daemon_timeout", 2.5), context=context)
-        if isinstance(d, dict) and d.get("needs_refinement") and str(d.get("refined") or "").strip():
+        if isinstance(d, dict):
             return _normalize(d)
-        # daemon answered "nothing to add" (or was down) -> fall through
+        # daemon was down / timed out -> fall through to the configured backends
     for b in backends:
         obj = b(prompt, system, cfg)
         if obj is not None:

@@ -18,11 +18,14 @@ from . import scorelog
 
 
 def _substantive(records: list[dict]) -> list[dict]:
-    # ignore continuations/commands — they aren't "prompts" for coaching purposes
+    # ignore continuations/commands — they aren't "prompts" for coaching purposes.
+    # Threshold matches the gate's default min_words (4) so the very prompts that
+    # trigger coaching (e.g. "fix the mobile version" = 4 words) aren't filtered
+    # out of the metrics.
     return [
         r
         for r in records
-        if not r.get("is_continuation") and (r.get("word_count") or 0) >= 8
+        if not r.get("is_continuation") and (r.get("word_count") or 0) >= 4
     ]
 
 
@@ -36,8 +39,10 @@ def _self_sufficient(r: dict) -> bool:
 
 
 def _rate(records: list[dict]) -> float | None:
-    subs = _substantive(records)
-    execs = [r for r in subs if r.get("mode") != "other"]
+    # "Execute-mode self-sufficiency" — computed over EXECUTE prompts only, so
+    # intentional explore prompts (which always score self-sufficient) can't
+    # inflate the number or make it non-zero when there are no execute prompts.
+    execs = [r for r in _substantive(records) if r.get("mode") == "execute"]
     if not execs:
         return None
     good = sum(1 for r in execs if _self_sufficient(r))

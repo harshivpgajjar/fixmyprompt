@@ -225,11 +225,23 @@ def cmd_try(args):
             else:
                 print("  reason: already specified enough — nothing to add.")
             return
+        # NOTE: the sandboxed run above can't see the real daemon (its socket
+        # lives under the real WHETSTONE_HOME), so a scaffold here may actually
+        # be an AI rewrite live. Detect the real daemon and say so.
+        real_daemon = daemon.is_running() and config.load().get("use_daemon")
         data = json.loads(out)
         if "decision" in data:
-            key = "with a written AI rewrite" if os.environ.get("ANTHROPIC_API_KEY") else "with a local scaffold (no API key)"
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                key = "with a written AI rewrite"
+            elif real_daemon:
+                key = "with a written AI rewrite (your daemon is running)"
+            else:
+                key = "with a local scaffold (no API key)"
             print(f"\n→ would BLOCK and teach {key}:\n")
             print(data["reason"])
+            if real_daemon and not os.environ.get("ANTHROPIC_API_KEY"):
+                print("\n  (live, the running daemon would replace the scaffold above "
+                      "with an AI-written rewrite you send with `y`.)")
         elif "hookSpecificOutput" in data:
             ctx = data["hookSpecificOutput"].get("additionalContext", "")
             print("\n→ WHISPER: would NOT block. Injects this note so your main model "
@@ -239,15 +251,36 @@ def cmd_try(args):
         shutil.rmtree(home, ignore_errors=True)
 
 
+def _agent_loaded() -> bool:
+    import subprocess
+    r = subprocess.run(["launchctl", "list", "com.whetstone.daemon"], capture_output=True)
+    return r.returncode == 0
+
+
+def _bootout_agent():
+    import subprocess
+    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.whetstone.daemon"],
+                   capture_output=True)
+    _LAUNCH_AGENT.unlink(missing_ok=True)
+
+
 def _write_launch_agent():
-    """KeepAlive LaunchAgent so the daemon survives crashes/reboots."""
+    """KeepAlive LaunchAgent so the daemon survives crashes/reboots. Sets a full
+    PATH (launchd's default is minimal) so the child can find `claude` wherever
+    it's installed (homebrew / npm-global / ~/.local/bin)."""
+    home = os.path.expanduser("~")
+    path = (f"{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:"
+            f"{home}/.npm-global/bin:{home}/.nvm/current/bin:/usr/bin:/bin")
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.whetstone.daemon</string>
   <key>ProgramArguments</key>
   <array><string>{sys.executable}</string><string>-m</string><string>whetstone.daemon</string><string>run</string></array>
-  <key>EnvironmentVariables</key><dict><key>PYTHONPATH</key><string>{Path(__file__).resolve().parent.parent}</string></dict>
+  <key>EnvironmentVariables</key><dict>
+    <key>PYTHONPATH</key><string>{Path(__file__).resolve().parent.parent}</string>
+    <key>PATH</key><string>{path}</string>
+  </dict>
   <key>KeepAlive</key><true/>
   <key>RunAtLoad</key><true/>
   <key>StandardErrorPath</key><string>{config.RUNTIME_DIR / 'daemon-launchd.log'}</string>
@@ -258,6 +291,7 @@ def _write_launch_agent():
 
 
 def cmd_daemon(args):
+    import subprocess
     sub = args[0] if args else "status"
     if sub == "status":
         s = daemon.status()
@@ -266,41 +300,58 @@ def cmd_daemon(args):
         print(f"  socket: {s['socket']}")
         print(f"  keep-alive agent: {'installed' if _LAUNCH_AGENT.exists() else 'not installed'}")
     elif sub == "start":
+        # manual, non-launchd start (for testing). If the KeepAlive agent owns
+        # the daemon, don't fork a competing one.
+        if _agent_loaded():
+            print("daemon: managed by the KeepAlive agent (use `whetstone daemon off` to stop).")
+            return
         started = daemon.start()
         print("daemon: starting…" if started else "daemon: already running")
         if started:
-            daemon.refine("warm up", timeout=8.0)  # prime it so the first real refine is warm (~1.7s)
+            daemon.refine("warm up", timeout=8.0)  # prime the first refine (~1.7s)
     elif sub == "stop":
+        # Unload the KeepAlive agent FIRST or launchd instantly respawns it.
+        _bootout_agent()
         print("daemon: stopped" if daemon.stop() else "daemon: was not running")
     elif sub == "on":
-        # the daemon only feeds the BLOCK gate (always/sigil); in whisper/off it
-        # would sit idle. Switch to 'always' so the rewrites you enabled show up.
+        # The daemon only feeds the BLOCK gate (always/sigil); in whisper/off it
+        # would sit idle. Switch to 'always' and remember the prior mode so
+        # `daemon off` can restore it.
+        cur = config.load()
         patch = {"use_daemon": True}
-        switched = config.load()["mode"] in ("off", "whisper")
+        switched = cur["mode"] in ("off", "whisper")
         if switched:
+            patch["daemon_prior_mode"] = cur["mode"]
             patch["mode"] = "always"
         config.save(patch)
         _write_launch_agent()
-        import subprocess
         uid = os.getuid()
-        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.whetstone.daemon"],
-                       capture_output=True)
-        subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(_LAUNCH_AGENT)],
-                       capture_output=True)
-        if daemon.start():
-            daemon.refine("warm up", timeout=8.0)  # prime the session
+        # launchd exclusively owns the daemon (RunAtLoad starts it). Do NOT also
+        # call daemon.start() — that created a competing owner + socket race.
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.whetstone.daemon"], capture_output=True)
+        subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(_LAUNCH_AGENT)], capture_output=True)
+        import time as _t
+        for _ in range(20):  # wait up to ~4s for launchd to bring the socket up, then warm it
+            if daemon.is_running():
+                break
+            _t.sleep(0.2)
+        daemon.refine("warm up", timeout=8.0)
         print("Whetstone daemon: ON — fast AI-written rewrites on your subscription, no key.")
         if switched:
             print("Mode set to 'always' so the rewrites appear (whisper/off don't use the daemon).")
         print("The block gate will now show written rewrites (y to send). New sessions pick it up.")
     elif sub == "off":
-        config.save({"use_daemon": False})
-        import subprocess
-        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.whetstone.daemon"],
-                       capture_output=True)
-        _LAUNCH_AGENT.unlink(missing_ok=True)
-        daemon.stop()
-        print("Whetstone daemon: OFF. Gate falls back to whisper/scaffold (still no key).")
+        cur = config.load()
+        patch = {"use_daemon": False}
+        prior = cur.get("daemon_prior_mode")
+        if prior and cur.get("mode") == "always":  # restore the mode `on` changed
+            patch["mode"] = prior
+        patch["daemon_prior_mode"] = None
+        config.save(patch)
+        _bootout_agent()          # stop launchd respawns first
+        daemon.stop()             # then kill the process + clean its files
+        restored = f" Mode restored to '{prior}'." if patch.get("mode") else ""
+        print(f"Whetstone daemon: OFF.{restored} Gate falls back to whisper/scaffold (still no key).")
     else:
         print("usage: whetstone daemon <on|off|start|stop|status>")
 

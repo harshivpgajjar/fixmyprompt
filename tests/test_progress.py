@@ -139,10 +139,11 @@ class ProgressTest(unittest.TestCase):
     def test_progress_week_contains_all_sections(self):
         self._seed_two_weeks()
         out = self.rp.progress("week")
-        # headline: 7/9 self-sufficient this week vs 2/6 previous -> 78%, +44 pts, up
-        self.assertIn("Execute-mode self-sufficiency: 78%", out)
+        # headline: execute-only self-sufficiency this week (6/8=75%) vs previous
+        # (33%) -> 75%, +42 pts, up (explore prompts excluded from the rate)
+        self.assertIn("Execute-mode self-sufficiency: 75%", out)
         self.assertIn("↑", out)
-        self.assertIn("+44 pts", out)
+        self.assertIn("+42 pts", out)
         # sparkline present with real block chars and endpoint date labels
         self.assertTrue(any(ch in out for ch in BLOCKS))
         self.assertIn(date.today().strftime("%b %d"), out)

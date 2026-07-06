@@ -103,9 +103,15 @@ def _claude_exe() -> str:
     exe = shutil.which("claude")
     if exe:
         return exe
-    # research machine install location; Popen raises FileNotFoundError if absent,
-    # which every caller turns into a fail-open answer.
-    return os.path.expanduser("~/.local/bin/claude")
+    # PATH may be minimal (launchd) — check the common install locations so a
+    # homebrew / npm-global / ~/.local install still works.
+    home = os.path.expanduser("~")
+    for cand in (f"{home}/.local/bin/claude", "/opt/homebrew/bin/claude",
+                 "/usr/local/bin/claude", f"{home}/.npm-global/bin/claude"):
+        if os.path.exists(cand):
+            return cand
+    # last resort; Popen raises FileNotFoundError if absent -> fail-open answer.
+    return f"{home}/.local/bin/claude"
 
 
 def _claude_cmd(model: str) -> list:
@@ -147,11 +153,44 @@ def _log(msg: str) -> None:
 # ------------------------------------------------------------------ child JSON parsing
 
 
+def _balanced_json_blocks(text: str) -> list:
+    """Top-level {...} substrings with balanced, string-aware braces — so trailing
+    chatter containing a brace can't corrupt the candidate (greedy `\\{.*\\}` did)."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        if text[i] == "{":
+            depth = 0
+            in_str = esc = False
+            j = i
+            while j < n:
+                c = text[j]
+                if in_str:
+                    if esc:
+                        esc = False
+                    elif c == "\\":
+                        esc = True
+                    elif c == '"':
+                        in_str = False
+                elif c == '"':
+                    in_str = True
+                elif c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                    if depth == 0:
+                        out.append(text[i:j + 1])
+                        i = j
+                        break
+                j += 1
+        i += 1
+    return out
+
+
 def _extract_json(text: str):
-    """Direct parse, else first {...} block (handles code fences / chatter)."""
+    """Direct parse, else each balanced {...} block (handles fences / chatter)."""
     if not text:
         return None
-    for candidate in (text, *re.findall(r"\{.*\}", text, re.DOTALL)):
+    for candidate in (text, *_balanced_json_blocks(text)):
         try:
             obj = json.loads(candidate)
         except Exception:

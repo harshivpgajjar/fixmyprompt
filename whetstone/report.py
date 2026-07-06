@@ -326,12 +326,19 @@ def best_prompt(records: list[dict]) -> str | None:
     """The user's sharpest substantive prompt in the set — highest quality with a
     real (non-redacted) preview, tie-broken by length. Returns the preview, or
     None if there's nothing worth surfacing."""
+    def _real(p: str) -> bool:
+        pl = p.lower()
+        # skip redactions and meta/system prompts that got logged
+        if "redacted" in pl:
+            return False
+        return not pl.startswith(("you are ", "return only", "system:", "your job",
+                                  "you refine", "reply with only"))
+
     cands = [
         r for r in _substantive(records)
         if r.get("mode") in ("execute", "explore")
         and (r.get("quality") or 0) >= 0.75
-        and r.get("preview")
-        and "redacted" not in (r.get("preview") or "")
+        and r.get("preview") and _real(r.get("preview") or "")
     ]
     if not cands:
         return None

@@ -17,9 +17,11 @@ Read `~/.claude/memory/core.md` and `~/.claude/memory/design-taste.md` if presen
 
 3. **Give exactly one teaching point** — a specific, transferable prompting lesson tied to THIS prompt, not generic advice.
 
+4. **Suggest the best-suited model + effort** for this task, one line: mechanical edits → Haiku 4.5 · low; everyday feature/UI/design iteration → Sonnet 5 · high; hard, ambiguous, or architectural work → Fable 5 · xhigh.
+
 Format your reply:
 ```
-mode: <explore|execute>
+mode: <explore|execute>   ·   suggested: <model> · <effort> effort
 
 ── refined ──
 <the send-ready prompt>

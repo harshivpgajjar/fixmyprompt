@@ -36,6 +36,48 @@ def cmd_suggest(args):
     print(f"  {s['why']}")
 
 
+_DIGEST_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.whetstone.digest.plist"
+_NOTIFY = Path(os.path.expanduser("~")) / ".claude" / "memory" / "notify.sh"
+
+
+def cmd_digest(args):
+    """Send the weekly progress report to Telegram (or print if no notifier)."""
+    import subprocess
+    period = args[0] if args and args[0] in ("day", "week", "month") else "week"
+    text = "📊 Whetstone weekly progress\n\n" + report.progress(period)
+    if _NOTIFY.exists():
+        subprocess.run(["bash", str(_NOTIFY), text], capture_output=True)
+        print("digest sent to Telegram.")
+    else:
+        print(text)
+        print("\n(no notifier found at ~/.claude/memory/notify.sh — printed instead)")
+
+
+def cmd_digest_schedule(args):
+    """`whetstone digest-schedule on|off` — Sunday 9am Telegram digest."""
+    import subprocess
+    on = args and args[0] == "on"
+    if on:
+        plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.whetstone.digest</string>
+  <key>ProgramArguments</key><array><string>{Path(__file__).resolve()}</string><string>digest</string><string>week</string></array>
+  <key>StartCalendarInterval</key><dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+</dict></plist>
+"""
+        _DIGEST_AGENT.parent.mkdir(parents=True, exist_ok=True)
+        _DIGEST_AGENT.write_text(plist)
+        uid = os.getuid()
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.whetstone.digest"], capture_output=True)
+        subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(_DIGEST_AGENT)], capture_output=True)
+        print("Whetstone: weekly Telegram digest scheduled for Sunday 9am.")
+    else:
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.whetstone.digest"], capture_output=True)
+        _DIGEST_AGENT.unlink(missing_ok=True)
+        print("Whetstone: weekly digest unscheduled.")
+
+
 def cmd_tutorial(args):
     if not args or args[0] not in ("on", "off", "status"):
         cur = config.load().get("tutorial")
@@ -92,9 +134,11 @@ def cmd_refine(args):
     prompt = " ".join(args)
     feats = scorer.classify(prompt)
     r = refiner.refine(prompt)
+    sug = scorer.suggest_model_effort(feats, prompt)
     # trust the LLM's mode only when it actually refined; else the local classifier
     # is the reliable source (the refiner returns a default "other" when it fails open).
-    print(f"mode: {r.get('mode') if r.get('needs_refinement') else feats['mode']}")
+    print(f"mode: {r.get('mode') if r.get('needs_refinement') else feats['mode']}"
+          f"   ·   suggested: {sug['model']} · {sug['effort']} effort")
 
     if r.get("needs_refinement"):
         print("\n── refined ──")
@@ -286,6 +330,8 @@ COMMANDS = {
     "progress": cmd_progress,
     "suggest": cmd_suggest,
     "tutorial": cmd_tutorial,
+    "digest": cmd_digest,
+    "digest-schedule": cmd_digest_schedule,
     "status": cmd_status,
     "on": cmd_on,
     "off": cmd_off,

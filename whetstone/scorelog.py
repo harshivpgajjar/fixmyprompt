@@ -16,6 +16,17 @@ from . import config
 
 LOG_PATH = config.RUNTIME_DIR / "prompt-log.jsonl"
 
+# Per-invocation context the hook sets once, so every log record can carry the
+# session and working directory without threading them through every call site.
+# Powers outcome-tracking (within-session correction sequences) and per-project
+# tuning (cwd → project).
+_CTX = {"session_id": None, "cwd": None}
+
+
+def set_context(session_id=None, cwd=None) -> None:
+    _CTX["session_id"] = session_id
+    _CTX["cwd"] = cwd
+
 _SECRET = re.compile(
     r"(sk-[A-Za-z0-9]{8,}|r8_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_\-]{10,}|"
     r"ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN|"
@@ -51,6 +62,8 @@ def log(prompt: str, features: dict, action: str, cfg: dict | None = None) -> No
             "quality": features.get("quality"),
             "gaps": features.get("gaps", []),
             "preview": _preview(prompt, cfg),
+            "session_id": _CTX["session_id"],
+            "cwd": _CTX["cwd"],
         }
         with LOG_PATH.open("a") as fh:
             fh.write(json.dumps(record) + "\n")

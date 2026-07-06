@@ -229,6 +229,8 @@ def main() -> None:
         session_id = data.get("session_id")
         if not isinstance(session_id, str) or not session_id:
             session_id = "nosession"
+        cwd = data.get("cwd") if isinstance(data.get("cwd"), str) else None
+        scorelog.set_context(session_id, cwd)  # so every log record carries them
         cfg = config.load()
 
         # 1. RESUBMIT BRANCH (one-shot bypass) — guarantees no double-block.

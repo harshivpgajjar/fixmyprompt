@@ -311,7 +311,32 @@ def progress(period: str = "week") -> str:
             )
     else:
         lines.append("Most improved: not enough data to compare axes yet.")
+
+    # Prompt of the period — your sharpest prompt, as a template to repeat
+    best = best_prompt(this)
+    if best:
+        lines.append("")
+        lines.append(f"⭐ Prompt of the {period} (your sharpest — do more like this):")
+        lines.append(f"   \"{best}\"")
+
     return "\n".join(lines) + "\n"
+
+
+def best_prompt(records: list[dict]) -> str | None:
+    """The user's sharpest substantive prompt in the set — highest quality with a
+    real (non-redacted) preview, tie-broken by length. Returns the preview, or
+    None if there's nothing worth surfacing."""
+    cands = [
+        r for r in _substantive(records)
+        if r.get("mode") in ("execute", "explore")
+        and (r.get("quality") or 0) >= 0.75
+        and r.get("preview")
+        and "redacted" not in (r.get("preview") or "")
+    ]
+    if not cands:
+        return None
+    best = max(cands, key=lambda r: ((r.get("quality") or 0), r.get("word_count") or 0))
+    return best.get("preview")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Whetstone CLI: whetstone <try|report|status|on|off|mode|refine|selftest>"""
+"""FixMyPrompt CLI: fixmyprompt <try|report|status|on|off|mode|refine|selftest>"""
 from __future__ import annotations
 
 import json
@@ -9,9 +9,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from whetstone import config, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
+from fixmyprompt import config, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
 
-_LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.whetstone.daemon.plist"
+_LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.daemon.plist"
 
 
 def cmd_report(args):
@@ -28,7 +28,7 @@ def cmd_progress(args):
 
 def cmd_suggest(args):
     if not args:
-        print('usage: whetstone suggest "your prompt"')
+        print('usage: fixmyprompt suggest "your prompt"')
         return
     prompt = " ".join(args)
     feats = scorer.classify(prompt)
@@ -38,7 +38,7 @@ def cmd_suggest(args):
     print(f"  {s['why']}")
 
 
-_DIGEST_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.whetstone.digest.plist"
+_DIGEST_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.digest.plist"
 _NOTIFY = Path(os.path.expanduser("~")) / ".claude" / "memory" / "notify.sh"
 
 
@@ -46,7 +46,7 @@ def cmd_digest(args):
     """Send the weekly progress report to Telegram (or print if no notifier)."""
     import subprocess
     period = args[0] if args and args[0] in ("day", "week", "month") else "week"
-    text = "📊 Whetstone weekly progress\n\n" + report.progress(period)
+    text = "📊 FixMyPrompt weekly progress\n\n" + report.progress(period)
     if _NOTIFY.exists():
         subprocess.run(["bash", str(_NOTIFY), text], capture_output=True)
         print("digest sent to Telegram.")
@@ -56,14 +56,14 @@ def cmd_digest(args):
 
 
 def cmd_digest_schedule(args):
-    """`whetstone digest-schedule on|off` — Sunday 9am Telegram digest."""
+    """`fixmyprompt digest-schedule on|off` — Sunday 9am Telegram digest."""
     import subprocess
     on = args and args[0] == "on"
     if on:
         plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>com.whetstone.digest</string>
+  <key>Label</key><string>com.fixmyprompt.digest</string>
   <key>ProgramArguments</key><array><string>{Path(__file__).resolve()}</string><string>digest</string><string>week</string></array>
   <key>StartCalendarInterval</key><dict><key>Weekday</key><integer>0</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
 </dict></plist>
@@ -71,19 +71,19 @@ def cmd_digest_schedule(args):
         _DIGEST_AGENT.parent.mkdir(parents=True, exist_ok=True)
         _DIGEST_AGENT.write_text(plist)
         uid = os.getuid()
-        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.whetstone.digest"], capture_output=True)
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.fixmyprompt.digest"], capture_output=True)
         subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(_DIGEST_AGENT)], capture_output=True)
-        print("Whetstone: weekly Telegram digest scheduled for Sunday 9am.")
+        print("FixMyPrompt: weekly Telegram digest scheduled for Sunday 9am.")
     else:
-        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.whetstone.digest"], capture_output=True)
+        subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.fixmyprompt.digest"], capture_output=True)
         _DIGEST_AGENT.unlink(missing_ok=True)
-        print("Whetstone: weekly digest unscheduled.")
+        print("FixMyPrompt: weekly digest unscheduled.")
 
 
 def cmd_tutorial(args):
     if not args or args[0] not in ("on", "off", "status"):
         cur = config.load().get("tutorial")
-        print(f"tutorial mode: {'on' if cur else 'off'}   (whetstone tutorial <on|off>)")
+        print(f"tutorial mode: {'on' if cur else 'off'}   (fixmyprompt tutorial <on|off>)")
         print("  on = coach EVERY prompt (well-formed ones get an affirmation) so you")
         print("       learn what 'good' looks like, not just what's broken.")
         return
@@ -91,12 +91,12 @@ def cmd_tutorial(args):
         print(f"tutorial mode: {'on' if config.load().get('tutorial') else 'off'}")
         return
     config.save({"tutorial": args[0] == "on"})
-    print(f"Whetstone tutorial mode: {args[0].upper()} (applies to new sessions).")
+    print(f"FixMyPrompt tutorial mode: {args[0].upper()} (applies to new sessions).")
 
 
 def cmd_status(_args):
     cfg = config.load()
-    print("Whetstone status")
+    print("FixMyPrompt status")
     print(f"  mode         : {cfg['mode']}   (always | whisper | sigil | off)")
     print(f"  sigil        : {cfg['sigil']}")
     print(f"  min_words    : {cfg['min_words']}")
@@ -109,29 +109,29 @@ def cmd_status(_args):
 
 def cmd_on(_args):
     config.save({"mode": "always"})
-    print("Whetstone: live coaching ON (mode=always). Applies to new sessions.")
+    print("FixMyPrompt: live coaching ON (mode=always). Applies to new sessions.")
 
 
 def cmd_off(_args):
     config.save({"mode": "off"})
-    print("Whetstone: live coaching OFF. /refine and the weekly report still work.")
+    print("FixMyPrompt: live coaching OFF. /refine and the weekly report still work.")
 
 
 def cmd_mode(args):
     if not args or args[0] not in ("always", "sigil", "whisper", "off"):
-        print("usage: whetstone mode <always|sigil|whisper|off>")
+        print("usage: fixmyprompt mode <always|sigil|whisper|off>")
         print("  always  — block before send, show refined/scaffold")
         print("  whisper — no block; main model asks for the missing piece (subscription, no key)")
         print("  sigil   — only coach prompts starting with the sigil")
         print("  off     — disable live coaching")
         return
     config.save({"mode": args[0]})
-    print(f"Whetstone: mode={args[0]} (applies to new sessions).")
+    print(f"FixMyPrompt: mode={args[0]} (applies to new sessions).")
 
 
 def cmd_refine(args):
     if not args:
-        print('usage: whetstone refine "your rough prompt"')
+        print('usage: fixmyprompt refine "your rough prompt"')
         return
     prompt = " ".join(args)
     feats = scorer.classify(prompt)
@@ -176,7 +176,7 @@ def cmd_try(args):
     """Simulate the live Coach Gate on a prompt — shows exactly what teaching
     mode would do, without turning it on or touching your real log/state."""
     if not args:
-        print('usage: whetstone try "your rough prompt"')
+        print('usage: fixmyprompt try "your rough prompt"')
         print("Shows what the live gate would do (block+coach, or pass silently).")
         return
     import shutil
@@ -200,7 +200,7 @@ def cmd_try(args):
     try:
         env = {
             **os.environ,
-            "WHETSTONE_HOME": home,          # sandbox: never touches your real log
+            "FIXMYPROMPT_HOME": home,          # sandbox: never touches your real log
             "PCOACH_MODE": preview_mode,
             "PCOACH_COOLDOWN": "0",
         }
@@ -226,7 +226,7 @@ def cmd_try(args):
                 print("  reason: already specified enough — nothing to add.")
             return
         # NOTE: the sandboxed run above can't see the real daemon (its socket
-        # lives under the real WHETSTONE_HOME), so a scaffold here may actually
+        # lives under the real FIXMYPROMPT_HOME), so a scaffold here may actually
         # be an AI rewrite live. Detect the real daemon and say so.
         real_daemon = daemon.is_running() and config.load().get("use_daemon")
         data = json.loads(out)
@@ -253,13 +253,13 @@ def cmd_try(args):
 
 def _agent_loaded() -> bool:
     import subprocess
-    r = subprocess.run(["launchctl", "list", "com.whetstone.daemon"], capture_output=True)
+    r = subprocess.run(["launchctl", "list", "com.fixmyprompt.daemon"], capture_output=True)
     return r.returncode == 0
 
 
 def _bootout_agent():
     import subprocess
-    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.whetstone.daemon"],
+    subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}/com.fixmyprompt.daemon"],
                    capture_output=True)
     _LAUNCH_AGENT.unlink(missing_ok=True)
 
@@ -274,9 +274,9 @@ def _write_launch_agent():
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>com.whetstone.daemon</string>
+  <key>Label</key><string>com.fixmyprompt.daemon</string>
   <key>ProgramArguments</key>
-  <array><string>{sys.executable}</string><string>-m</string><string>whetstone.daemon</string><string>run</string></array>
+  <array><string>{sys.executable}</string><string>-m</string><string>fixmyprompt.daemon</string><string>run</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>PYTHONPATH</key><string>{Path(__file__).resolve().parent.parent}</string>
     <key>PATH</key><string>{path}</string>
@@ -303,7 +303,7 @@ def cmd_daemon(args):
         # manual, non-launchd start (for testing). If the KeepAlive agent owns
         # the daemon, don't fork a competing one.
         if _agent_loaded():
-            print("daemon: managed by the KeepAlive agent (use `whetstone daemon off` to stop).")
+            print("daemon: managed by the KeepAlive agent (use `fixmyprompt daemon off` to stop).")
             return
         started = daemon.start()
         print("daemon: starting…" if started else "daemon: already running")
@@ -328,7 +328,7 @@ def cmd_daemon(args):
         uid = os.getuid()
         # launchd exclusively owns the daemon (RunAtLoad starts it). Do NOT also
         # call daemon.start() — that created a competing owner + socket race.
-        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.whetstone.daemon"], capture_output=True)
+        subprocess.run(["launchctl", "bootout", f"gui/{uid}/com.fixmyprompt.daemon"], capture_output=True)
         subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(_LAUNCH_AGENT)], capture_output=True)
         import time as _t
         for _ in range(20):  # wait up to ~4s for launchd to bring the socket up, then warm it
@@ -336,7 +336,7 @@ def cmd_daemon(args):
                 break
             _t.sleep(0.2)
         daemon.refine("warm up", timeout=8.0)
-        print("Whetstone daemon: ON — fast AI-written rewrites on your subscription, no key.")
+        print("FixMyPrompt daemon: ON — fast AI-written rewrites on your subscription, no key.")
         if switched:
             print("Mode set to 'always' so the rewrites appear (whisper/off don't use the daemon).")
         print("The block gate will now show written rewrites (y to send). New sessions pick it up.")
@@ -351,9 +351,9 @@ def cmd_daemon(args):
         _bootout_agent()          # stop launchd respawns first
         daemon.stop()             # then kill the process + clean its files
         restored = f" Mode restored to '{prior}'." if patch.get("mode") else ""
-        print(f"Whetstone daemon: OFF.{restored} Gate falls back to whisper/scaffold (still no key).")
+        print(f"FixMyPrompt daemon: OFF.{restored} Gate falls back to whisper/scaffold (still no key).")
     else:
-        print("usage: whetstone daemon <on|off|start|stop|status>")
+        print("usage: fixmyprompt daemon <on|off|start|stop|status>")
 
 
 def cmd_selftest(_args):
@@ -396,7 +396,7 @@ COMMANDS = {
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print("usage: whetstone <try|suggest|progress|report|tutorial|mode|daemon|"
+        print("usage: fixmyprompt <try|suggest|progress|report|tutorial|mode|daemon|"
               "status|on|off|refine|selftest>")
         sys.exit(1)
     COMMANDS[sys.argv[1]](sys.argv[2:])

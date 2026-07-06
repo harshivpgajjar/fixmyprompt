@@ -1,4 +1,4 @@
-"""Exhaustive tests for whetstone.scorer — the local prompt classifier.
+"""Exhaustive tests for fixmyprompt.scorer — the local prompt classifier.
 
 Run:  cd <repo root> && python3 -m unittest tests.test_scorer -v
 
@@ -9,15 +9,15 @@ The labeled sets below are drawn from the primary user's real prompting style
   well-formed execute prompt, continuation, command, and paste (zero false
   positives — a wrongly-fired coach destroys trust).
 - RECALL: genuinely under-specified execute prompts of >= min_words must fire.
-- The FEATURES dict shape is frozen (see whetstone/__init__.py).
+- The FEATURES dict shape is frozen (see fixmyprompt/__init__.py).
 """
 from __future__ import annotations
 
 import time
 import unittest
 
-from whetstone import FEATURE_KEYS
-from whetstone.scorer import classify, should_coach
+from fixmyprompt import FEATURE_KEYS
+from fixmyprompt.scorer import classify, should_coach
 
 # Realistic runtime config (config.py defaults with the hook enabled).
 CFG = {"mode": "always", "min_words": 12, "coach_below_quality": 0.7}

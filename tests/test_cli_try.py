@@ -1,4 +1,4 @@
-"""Smoke tests for `whetstone try` — the safe live-gate simulator."""
+"""Smoke tests for `fixmyprompt try` — the safe live-gate simulator."""
 import os
 import subprocess
 import sys
@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-CLI = Path(__file__).resolve().parent.parent / "bin" / "whetstone"
+CLI = Path(__file__).resolve().parent.parent / "bin" / "fixmyprompt"
 
 
 def run_try(prompt, min_words=None):
@@ -15,7 +15,7 @@ def run_try(prompt, min_words=None):
     env = {
         **os.environ,
         "ANTHROPIC_API_KEY": "",
-        "WHETSTONE_HOME": tempfile.mkdtemp(),  # fresh: mode defaults off -> preview 'always'
+        "FIXMYPROMPT_HOME": tempfile.mkdtemp(),  # fresh: mode defaults off -> preview 'always'
     }
     if min_words is not None:
         env["PCOACH_MIN_WORDS"] = str(min_words)

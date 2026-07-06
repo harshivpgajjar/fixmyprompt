@@ -9,15 +9,15 @@ import unittest
 class StateTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        os.environ["WHETSTONE_HOME"] = self.tmp
-        import whetstone.config as c
+        os.environ["FIXMYPROMPT_HOME"] = self.tmp
+        import fixmyprompt.config as c
         importlib.reload(c)
-        import whetstone.state as s
+        import fixmyprompt.state as s
         importlib.reload(s)
         self.s = s
 
     def tearDown(self):
-        os.environ.pop("WHETSTONE_HOME", None)
+        os.environ.pop("FIXMYPROMPT_HOME", None)
 
     def test_pending_is_one_shot(self):
         self.s.set_pending("sess1", "refined text")

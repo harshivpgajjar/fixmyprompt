@@ -1,7 +1,7 @@
-"""Tests for the model + effort suggester (whetstone suggest)."""
+"""Tests for the model + effort suggester (fixmyprompt suggest)."""
 import unittest
 
-from whetstone import scorer
+from fixmyprompt import scorer
 
 
 def sug(prompt):

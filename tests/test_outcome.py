@@ -20,20 +20,20 @@ def _rec(preview="", ts=0.0, action="pass", wc=10, cont=False, sid=None, **kw):
 class OutcomeTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        os.environ["WHETSTONE_HOME"] = self.tmp
+        os.environ["FIXMYPROMPT_HOME"] = self.tmp
         # import fresh so RUNTIME_DIR picks up the temp home
         import importlib
-        import whetstone.config as c
+        import fixmyprompt.config as c
         importlib.reload(c)
-        import whetstone.scorelog as sl
-        import whetstone.outcome as oc
+        import fixmyprompt.scorelog as sl
+        import fixmyprompt.outcome as oc
         importlib.reload(sl)
         importlib.reload(oc)
         self.sl = sl
         self.oc = oc
 
     def tearDown(self):
-        os.environ.pop("WHETSTONE_HOME", None)
+        os.environ.pop("FIXMYPROMPT_HOME", None)
 
     def _write(self, records):
         self.sl.LOG_PATH.parent.mkdir(parents=True, exist_ok=True)

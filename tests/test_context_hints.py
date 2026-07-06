@@ -13,17 +13,17 @@ MEDICOZ_HINT = "which app — provider or user?"
 class ContextHintsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        os.environ["WHETSTONE_HOME"] = self.tmp
+        os.environ["FIXMYPROMPT_HOME"] = self.tmp
         # import fresh so RUNTIME_DIR picks up the temp home
         import importlib
-        import whetstone.config as c
+        import fixmyprompt.config as c
         importlib.reload(c)
-        import whetstone.context_hints as ch
+        import fixmyprompt.context_hints as ch
         importlib.reload(ch)
         self.ch = ch
 
     def tearDown(self):
-        os.environ.pop("WHETSTONE_HOME", None)
+        os.environ.pop("FIXMYPROMPT_HOME", None)
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # --- seeding ---------------------------------------------------------

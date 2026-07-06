@@ -22,7 +22,7 @@ Wire protocol (one request per connection):
                                "refined": str, "tip": str}
   ops: {"op": "status"} -> {"ok": true, "pid": int, "turns_served": int}
 
-CLI:  python3 -m whetstone.daemon start|stop|status|run|refine <prompt...>
+CLI:  python3 -m fixmyprompt.daemon start|stop|status|run|refine <prompt...>
       (`run` serves in the foreground — handy for launchd/debugging.)
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ from . import config
 
 # ------------------------------------------------------------------ paths
 # Computed live from config.RUNTIME_DIR so a config reload (tests set
-# WHETSTONE_HOME per-test) is always honored without reloading this module.
+# FIXMYPROMPT_HOME per-test) is always honored without reloading this module.
 
 
 def socket_path() -> Path:
@@ -137,8 +137,8 @@ def _child_env() -> dict:
         "DISABLE_TELEMETRY": "1",
         "DISABLE_AUTOUPDATER": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-        # the nested claude session must never trigger whetstone's own hook
-        "WHETSTONE_IN_REFINER": "1",
+        # the nested claude session must never trigger fixmyprompt's own hook
+        "FIXMYPROMPT_IN_REFINER": "1",
     })
     return env
 
@@ -440,7 +440,7 @@ def _handle(conn: socket.socket, session: _ClaudeSession,
 
 def _serve() -> None:
     """Bind the socket and serve forever. Runs in the daemonized grandchild
-    (via start()) or in the foreground (via `python3 -m whetstone.daemon run`)."""
+    (via start()) or in the foreground (via `python3 -m fixmyprompt.daemon run`)."""
     cfg = config.load()
     rt = Path(config.RUNTIME_DIR)
     rt.mkdir(parents=True, exist_ok=True)
@@ -689,7 +689,7 @@ def stop() -> bool:
 
 # ------------------------------------------------------------------ CLI
 
-_USAGE = "usage: python3 -m whetstone.daemon start|stop|status|run|refine <prompt...>"
+_USAGE = "usage: python3 -m fixmyprompt.daemon start|stop|status|run|refine <prompt...>"
 
 
 def main(argv=None) -> int:

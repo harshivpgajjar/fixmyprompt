@@ -1,5 +1,5 @@
 """The refiner shells out to `claude -p`, whose own UserPromptSubmit hook would
-re-enter the gate. This proves the WHETSTONE_IN_REFINER guard makes nested
+re-enter the gate. This proves the FIXMYPROMPT_IN_REFINER guard makes nested
 invocations an instant no-op passthrough — no double-block, no infinite loop."""
 import json
 import os
@@ -33,9 +33,9 @@ class RecursionGuardTest(unittest.TestCase):
             "session_id": "R1",
         }
         proc = self._run(payload, {
-            "WHETSTONE_HOME": tmp,
+            "FIXMYPROMPT_HOME": tmp,
             "PCOACH_MODE": "always",
-            "WHETSTONE_IN_REFINER": "1",  # simulate the nested claude -p call
+            "FIXMYPROMPT_IN_REFINER": "1",  # simulate the nested claude -p call
             "ANTHROPIC_API_KEY": "",
         })
         # ...must pass straight through (empty stdout), exit 0, no block.
@@ -48,7 +48,7 @@ class RecursionGuardTest(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         proc = self._run(
             {"prompt": "yes", "session_id": "R2"},
-            {"WHETSTONE_HOME": tmp, "PCOACH_MODE": "always", "ANTHROPIC_API_KEY": ""},
+            {"FIXMYPROMPT_HOME": tmp, "PCOACH_MODE": "always", "ANTHROPIC_API_KEY": ""},
         )
         self.assertEqual(proc.returncode, 0)
         self.assertEqual(proc.stdout.strip(), "")  # 'yes' is a continuation -> silent

@@ -9,20 +9,20 @@ from pathlib import Path
 class ReportTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        os.environ["WHETSTONE_HOME"] = self.tmp
+        os.environ["FIXMYPROMPT_HOME"] = self.tmp
         # import fresh so RUNTIME_DIR picks up the temp home
         import importlib
-        import whetstone.config as c
+        import fixmyprompt.config as c
         importlib.reload(c)
-        import whetstone.scorelog as sl
-        import whetstone.report as rp
+        import fixmyprompt.scorelog as sl
+        import fixmyprompt.report as rp
         importlib.reload(sl)
         importlib.reload(rp)
         self.sl = sl
         self.rp = rp
 
     def tearDown(self):
-        os.environ.pop("WHETSTONE_HOME", None)
+        os.environ.pop("FIXMYPROMPT_HOME", None)
 
     def _feat(self, **kw):
         base = dict(
@@ -47,7 +47,7 @@ class ReportTest(unittest.TestCase):
                 word_count=15, has_done_criteria=False, has_constraints=False,
                 quality=0.3, gaps=["no acceptance criteria"]), "coach")
         out = self.rp.summarize(days=7)
-        self.assertIn("Prompting (Whetstone)", out)
+        self.assertIn("Prompting (FixMyPrompt)", out)
         self.assertIn("self-sufficiency", out)
         self.assertIn("no acceptance criteria", out)
 

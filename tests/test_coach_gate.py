@@ -8,10 +8,10 @@ these tests exercise the actual platform contract, not internals:
   - accept       : {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                     "additionalContext": ...}}, exit 0
 
-Isolation: every scenario gets a fresh temp WHETSTONE_HOME (state + logs) and a
+Isolation: every scenario gets a fresh temp FIXMYPROMPT_HOME (state + logs) and a
 minimal environment (stripped PATH so the real `claude` binary is unreachable,
 empty ANTHROPIC_API_KEY, no TMUX). The network refiner is replaced through the
-env-gated test seam WHETSTONE_FAKE_REFINE (JSON result, or "RAISE" to simulate
+env-gated test seam FIXMYPROMPT_FAKE_REFINE (JSON result, or "RAISE" to simulate
 a crash); the seam also tallies each consultation to fake-refine-calls so tests
 can prove the refiner was NOT called on silence paths and that the sigil was
 stripped before refinement.
@@ -74,8 +74,8 @@ class CoachGateTest(unittest.TestCase):
             shutil.rmtree(d, ignore_errors=True)
 
     def fresh_home(self):
-        """A brand-new isolated WHETSTONE_HOME (also used as HOME and PATH base)."""
-        d = tempfile.mkdtemp(prefix="whetstone-gate-test-")
+        """A brand-new isolated FIXMYPROMPT_HOME (also used as HOME and PATH base)."""
+        d = tempfile.mkdtemp(prefix="fixmyprompt-gate-test-")
         os.makedirs(os.path.join(d, "nobin"), exist_ok=True)  # empty PATH dir
         self._dirs.append(d)
         return d
@@ -98,14 +98,14 @@ class CoachGateTest(unittest.TestCase):
         home = home or self.home
         env = {
             "HOME": home,  # keep refiner personalization away from real files
-            "WHETSTONE_HOME": home,
+            "FIXMYPROMPT_HOME": home,
             "PCOACH_MODE": mode,
             "PCOACH_COOLDOWN": "0",  # cooldown gets its own dedicated test
             "ANTHROPIC_API_KEY": "",  # empty -> refiner API backend disabled
             "PATH": os.path.join(home, "nobin"),  # `claude` CLI unreachable
         }
         if fake is not REAL_REFINER and fake is not None:
-            env["WHETSTONE_FAKE_REFINE"] = fake
+            env["FIXMYPROMPT_FAKE_REFINE"] = fake
         if env_extra:
             env.update(env_extra)
         payload = (

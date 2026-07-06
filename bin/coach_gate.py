@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Whetstone Coach Gate — the UserPromptSubmit hook entrypoint.
+"""FixMyPrompt Coach Gate — the UserPromptSubmit hook entrypoint.
 
 Flow (see SPEC.md Phase 2):
   1. Resubmit branch: if the one-shot pending flag is set, consume it and either
@@ -38,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from whetstone import (  # noqa: E402
+from fixmyprompt import (  # noqa: E402
     ACTION_ACCEPT,
     ACTION_COACH,
     ACTION_EDIT,
@@ -57,10 +57,10 @@ _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it
 def _daemon_up() -> bool:
     """True if the daemon backend should be used: the feature is enabled
     (use_daemon) AND the process is actually running."""
-    if os.environ.get("WHETSTONE_FAKE_REFINE"):
+    if os.environ.get("FIXMYPROMPT_FAKE_REFINE"):
         return False  # test seam owns the refine path; don't consult the daemon
     try:
-        from whetstone import config, daemon
+        from fixmyprompt import config, daemon
         if not config.load().get("use_daemon"):
             return False
         return daemon.is_running()
@@ -125,7 +125,7 @@ def _whisper_context(features: dict) -> str:
     gaps = features.get("gaps") or []
     missing = ", ".join(gaps) if gaps else "a concrete done-state"
     return (
-        "[Whetstone prompt coach] The user's request is under-specified for a clean "
+        "[FixMyPrompt prompt coach] The user's request is under-specified for a clean "
         f"one-pass result — it's missing: {missing}. Before doing the work, briefly ask "
         "the user to confirm the key missing piece (a checkable done-state and the target "
         "surface), UNLESS it's obvious from context — in which case proceed, but state the "
@@ -152,8 +152,8 @@ def _tmux_inject(text: str, delay_ms: int) -> None:
     try:
         script = (
             f"sleep {max(0, delay_ms) / 1000.0}; "
-            f"printf %s {shell_quote(text)} | tmux load-buffer -b whetstone - ; "
-            f"tmux paste-buffer -p -d -b whetstone -t {shell_quote(pane)}"
+            f"printf %s {shell_quote(text)} | tmux load-buffer -b fixmyprompt - ; "
+            f"tmux paste-buffer -p -d -b fixmyprompt -t {shell_quote(pane)}"
         )
         subprocess.Popen(
             ["bash", "-lc", script],
@@ -172,7 +172,7 @@ def shell_quote(s: str) -> str:
 def _with_project(scaffold: str, cwd: str | None) -> str:
     """Append the per-project clarifying hint to a local scaffold, if any."""
     try:
-        from whetstone import context_hints
+        from fixmyprompt import context_hints
         extra = context_hints.scaffold_extra(cwd)
         return scaffold + "\n" + extra if extra else scaffold
     except Exception:
@@ -182,13 +182,13 @@ def _with_project(scaffold: str, cwd: str | None) -> str:
 def _banner(body: str, tip: str, kind: str = "refined") -> str:
     rule = "─" * 52
     if kind == "refined":
-        header = "── Whetstone · refined prompt (copied to clipboard) ──"
+        header = "── FixMyPrompt · refined prompt (copied to clipboard) ──"
         footer = "[y ⏎] send refined   ·   [⌘V, edit, ⏎] tweak   ·   [type anything] send your own"
     elif kind == "affirm":
-        header = "── Whetstone · looks good ✓ ──"
+        header = "── FixMyPrompt · looks good ✓ ──"
         footer = "press ⏎ to send your prompt as-is"
     else:  # scaffold
-        header = "── Whetstone · make this sharper ──"
+        header = "── FixMyPrompt · make this sharper ──"
         footer = "fill the <…> (or add the missing piece), then press ⏎ to send"
     out = [header, "", body.strip()]
     if tip.strip():
@@ -206,13 +206,13 @@ def _read_stdin() -> dict:
 
 
 def _refine(body: str, cfg: dict, cwd: str | None = None) -> dict:
-    # test seam — active ONLY when WHETSTONE_FAKE_REFINE is set (never set in
+    # test seam — active ONLY when FIXMYPROMPT_FAKE_REFINE is set (never set in
     # production; when unset this function is exactly refiner.refine).
     # The env value is a JSON refine-result, or the sentinel "RAISE" to
     # simulate a crashing refiner. Each consultation appends the body it
-    # received to $WHETSTONE_HOME/fake-refine-calls so tests can prove the
+    # received to $FIXMYPROMPT_HOME/fake-refine-calls so tests can prove the
     # refiner was (or was NOT) consulted, and that the sigil was stripped.
-    fake = os.environ.get("WHETSTONE_FAKE_REFINE")
+    fake = os.environ.get("FIXMYPROMPT_FAKE_REFINE")
     if fake:
         try:
             config.RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -230,9 +230,9 @@ def main() -> None:
     # RECURSION GUARD (must be first): the refiner shells out to `claude -p`,
     # whose own UserPromptSubmit hook would re-enter this gate and, if it also
     # coached, spawn another `claude -p` — an infinite loop. The refiner sets
-    # WHETSTONE_IN_REFINER on that subprocess; here it forces an instant
+    # FIXMYPROMPT_IN_REFINER on that subprocess; here it forces an instant
     # passthrough so nested invocations never process anything.
-    if os.environ.get("WHETSTONE_IN_REFINER"):
+    if os.environ.get("FIXMYPROMPT_IN_REFINER"):
         sys.exit(0)
     try:
         data = _read_stdin()
@@ -257,7 +257,7 @@ def main() -> None:
             if norm in _CONFIRM and refined.strip():
                 scorelog.log(prompt, scorer.classify(prompt), ACTION_ACCEPT, cfg)
                 try:  # feed accepted refinements into the criteria memory
-                    from whetstone import context_hints
+                    from fixmyprompt import context_hints
                     context_hints.learn_criteria(refined)
                 except Exception:
                     pass
@@ -329,7 +329,7 @@ def main() -> None:
         #      setup): an instant deterministic scaffold from the classifier's
         #      gaps. Nothing to auto-send, so the user edits and resends.
         has_api = bool(os.environ.get("ANTHROPIC_API_KEY"))
-        has_seam = bool(os.environ.get("WHETSTONE_FAKE_REFINE"))
+        has_seam = bool(os.environ.get("FIXMYPROMPT_FAKE_REFINE"))
         daemon_up = _daemon_up()
         llm_mode = has_api or has_seam or daemon_up
         refined_sendable = None  # None = no content produced yet
@@ -400,7 +400,7 @@ def main() -> None:
         # means a bare `y` won't auto-send — it just passes through.
         state.set_pending(session_id, refined_sendable or "")
         state.mark_coached(session_id)
-        if refined_sendable and not os.environ.get("WHETSTONE_FAKE_REFINE"):
+        if refined_sendable and not os.environ.get("FIXMYPROMPT_FAKE_REFINE"):
             _clipboard(refined_sendable)
             if cfg.get("inject"):
                 _tmux_inject(refined_sendable, cfg.get("inject_delay_ms", 450))

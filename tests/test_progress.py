@@ -1,6 +1,6 @@
 """Tests for the progress tracker (sparkline, streaks, daily rates, progress()).
 
-Mirrors test_report.py's temp-WHETSTONE_HOME + reload pattern. Records are
+Mirrors test_report.py's temp-FIXMYPROMPT_HOME + reload pattern. Records are
 seeded at local *midday* of each target day so the rolling epoch windows in
 scorelog.read/progress and the calendar-day bucketing never disagree at the
 boundaries, regardless of what time of day the suite runs.
@@ -40,19 +40,19 @@ def _bad(days_ago, gaps=None, **kw):
 class ProgressTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        os.environ["WHETSTONE_HOME"] = self.tmp
+        os.environ["FIXMYPROMPT_HOME"] = self.tmp
         # import fresh so RUNTIME_DIR picks up the temp home
-        import whetstone.config as c
+        import fixmyprompt.config as c
         importlib.reload(c)
-        import whetstone.scorelog as sl
-        import whetstone.report as rp
+        import fixmyprompt.scorelog as sl
+        import fixmyprompt.report as rp
         importlib.reload(sl)
         importlib.reload(rp)
         self.sl = sl
         self.rp = rp
 
     def tearDown(self):
-        os.environ.pop("WHETSTONE_HOME", None)
+        os.environ.pop("FIXMYPROMPT_HOME", None)
 
     def _seed(self, records):
         self.sl.LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -164,7 +164,7 @@ class ProgressTest(unittest.TestCase):
         for period in ("day", "week", "month"):
             out = self.rp.progress(period)
             self.assertIsInstance(out, str)
-            self.assertIn("Whetstone — prompt progress", out)
+            self.assertIn("FixMyPrompt — prompt progress", out)
 
     def test_progress_rejects_unknown_period(self):
         with self.assertRaises(ValueError):
@@ -200,7 +200,7 @@ class ProgressTest(unittest.TestCase):
                 word_count=15, has_done_criteria=False, has_constraints=False,
                 quality=0.3, gaps=["no acceptance criteria"]), "coach")
         out = self.rp.summarize(days=7)
-        self.assertIn("## Prompting (Whetstone)", out)
+        self.assertIn("## Prompting (FixMyPrompt)", out)
         self.assertIn("self-sufficiency", out)
         self.assertIn("no acceptance criteria", out)
 

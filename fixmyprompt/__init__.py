@@ -1,4 +1,4 @@
-"""Whetstone — a prompt coach for Claude Code.
+"""FixMyPrompt — a prompt coach for Claude Code.
 
 A prompt-quality coach that teaches better prompting in the flow, measures
 improvement over time, and stays silent on everything that doesn't need it.
@@ -12,7 +12,7 @@ Module map / interface contract (stable — subagents build against this):
 - scorelog.py : log(prompt, features, action) -> append redacted record for the weekly report
 - report.py   : summarize(days) -> markdown section for the Saturday self-audit
 - bin/coach_gate.py : the UserPromptSubmit hook entrypoint (orchestrates the above)
-- bin/whetstone     : CLI (report / on / off / status / refine / mode)
+- bin/fixmyprompt     : CLI (report / on / off / status / refine / mode)
 
 FEATURES schema returned by scorer.classify():
     word_count        : int

@@ -12,7 +12,7 @@ voice-dictated, typo-heavy, Hinglish-mixed, terse. Design goals, in order:
 3. Speed — pure functions, precompiled regexes, no I/O, no imports beyond
    `re`. classify() runs in well under a millisecond.
 
-Frozen interface (other modules depend on it — see whetstone/__init__.py):
+Frozen interface (other modules depend on it — see fixmyprompt/__init__.py):
     classify(prompt: str) -> dict  with exactly the FEATURE_KEYS keys
     should_coach(features: dict, cfg: dict) -> bool
 """

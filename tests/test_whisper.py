@@ -16,7 +16,7 @@ ROUGH = "build me a full analytics dashboard for the sales team so they can see 
 def run(prompt, session, home, mode="whisper", cooldown="0"):
     env = {
         **os.environ,
-        "WHETSTONE_HOME": home,
+        "FIXMYPROMPT_HOME": home,
         "PCOACH_MODE": mode,
         "PCOACH_COOLDOWN": cooldown,
         "ANTHROPIC_API_KEY": "",
@@ -45,7 +45,7 @@ class WhisperTest(unittest.TestCase):
         self.assertNotIn("decision", data)  # NOT a block
         ctx = data["hookSpecificOutput"]["additionalContext"]
         self.assertIn("under-specified", ctx)
-        self.assertIn("Whetstone", ctx)
+        self.assertIn("FixMyPrompt", ctx)
         self.assertEqual(self._actions(), ["coach"])
 
     def test_whisper_never_calls_llm(self):

@@ -1,7 +1,7 @@
 """Tests for the offline template scaffold fallback."""
 import unittest
 
-from whetstone import scorer, suggest
+from fixmyprompt import scorer, suggest
 
 
 class SuggestTest(unittest.TestCase):

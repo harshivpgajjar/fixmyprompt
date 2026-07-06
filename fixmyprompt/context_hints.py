@@ -50,7 +50,7 @@ DEFAULT_PROJECTS = {
     "goasorted": "which page or section of the site?",
     "vanta": "which page, and does the brand spec apply?",
     "portfolio": "which project entry or page?",
-    "whetstone": "which piece — gate hook, refiner, daemon, or CLI?",
+    "fixmyprompt": "which piece — gate hook, refiner, daemon, or CLI?",
     "swift money": "which screen or money flow?",
     "sift": "which feed or filter?",
     "room": "which screen or view?",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""One-time backfill: score the user's real prompt history into the Whetstone
-log so `whetstone report` has a meaningful baseline on day one.
+"""One-time backfill: score the user's real prompt history into the FixMyPrompt
+log so `fixmyprompt report` has a meaningful baseline on day one.
 
 Reads ~/.claude/history.jsonl (typed prompts), scores each with the real
 classifier, and appends historical records (action="pass") with their true
@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from whetstone import config, scorelog, scorer  # noqa: E402
+from fixmyprompt import config, scorelog, scorer  # noqa: E402
 
 HISTORY = Path(os.path.expanduser("~")) / ".claude" / "history.jsonl"
 MARKER = config.RUNTIME_DIR / ".backfilled"

@@ -1,7 +1,7 @@
-# Whetstone — a prompt coach for Claude Code
-*Spec v0.2 · 2026-07-05. Working name "Whetstone" (it sharpens the user, not just the prompt). Alts: Hone, Muse, Prompt Coach.*
+# FixMyPrompt — a prompt coach for Claude Code
+*Spec v0.2 · 2026-07-05. Working name "FixMyPrompt" (it sharpens the user, not just the prompt). Alts: Hone, Muse, Prompt Coach.*
 
-> **STATUS: BUILT & INSTALLED (2026-07-05).** All three phases shipped in one pass. 88/88 tests green (stdlib unittest); scorer and Coach Gate hardened + mutation-tested by Fable 5 subagents; every hook branch live-verified. Installed to `~/.claude/whetstone`, hook wired into settings.json (coaching **off** by default — `whetstone on` to enable), `/refine` skill live, 911 real prompts backfilled into the report, weekly self-audit now emits a Prompting section. See README.md for usage.
+> **STATUS: BUILT & INSTALLED (2026-07-05).** All three phases shipped in one pass. 88/88 tests green (stdlib unittest); scorer and Coach Gate hardened + mutation-tested by Fable 5 subagents; every hook branch live-verified. Installed to `~/.claude/fixmyprompt`, hook wired into settings.json (coaching **off** by default — `fixmyprompt on` to enable), `/refine` skill live, 911 real prompts backfilled into the report, weekly self-audit now emits a Prompting section. See README.md for usage.
 
 ## Problem
 Prompt quality is the biggest lever most Claude Code users have left, and nobody teaches it. Existing "prompt enhancers" rewrite one prompt and create dependence — they never build the skill. The gap between a user's best prompt and their worst is enormous (for the primary user: a full written spec that shipped a product in 3 days, vs. "i love tide, perfect it"). Close that gap by **teaching, in the flow, without friction** — and measure the improvement over time.
@@ -52,7 +52,7 @@ The literal dream (edit text in place) is impossible — no hook API can pre-fil
 
 **Rejected:** a PTY wrapper around the `claude` binary (the only path to literal in-place editing) — re-implements the whole line editor, breaks on every UI update, corrupts input on failure. tmux paste-buffer gives ~90% of it at ~2% of the risk.
 
-### Phase 3 — Distributable "Whetstone" plugin (for people everywhere)
+### Phase 3 — Distributable "FixMyPrompt" plugin (for people everywhere)
 - Strip personal files → generic default rubric + taste template. Aggressiveness as a setting (`off` / `gentle` / `assertive`). Package per the verified plugin structure; ship a marketplace entry. Bundles its own weekly prompt-quality report.
 
 ## Non-goals
@@ -75,4 +75,4 @@ The literal dream (edit text in place) is impossible — no hook API can pre-fil
 
 ## Open questions
 - Phase 2 default: block-and-suggest (visible, teaches, small friction) vs. silent-context-injection (invisible, better outcomes, no teaching) — probably offer both, default block-and-suggest only for the highest-value gaps.
-- Name: Whetstone / Hone / Muse / Prompt Coach.
+- Name: FixMyPrompt / Hone / Muse / Prompt Coach.

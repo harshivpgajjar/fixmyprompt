@@ -1,10 +1,10 @@
 """Weekly prompting-quality report — the teaching-made-measurable feature.
 
 summarize(days) returns a markdown section the Saturday self-audit embeds, and
-`whetstone report` prints. It answers: are the user's substantive prompts getting
+`fixmyprompt report` prints. It answers: are the user's substantive prompts getting
 more self-sufficient over time, and what are the recurring gaps?
 
-progress(period) is the richer interactive tracker behind `whetstone progress`:
+progress(period) is the richer interactive tracker behind `fixmyprompt progress`:
 headline trend vs the previous period, a sparkline, streaks, volume, gap
 trending, and the most-improved prompting axis.
 """
@@ -54,7 +54,7 @@ def summarize(days: int = 7) -> str:
     subs = _substantive(recent)
     if not subs:
         return (
-            "## Prompting (Whetstone)\n"
+            "## Prompting (FixMyPrompt)\n"
             f"No substantive prompts logged in the last {days} days.\n"
         )
 
@@ -73,7 +73,7 @@ def summarize(days: int = 7) -> str:
         for g in r.get("gaps", []) or []:
             gap_counter[g] += 1
 
-    lines = ["## Prompting (Whetstone)", ""]
+    lines = ["## Prompting (FixMyPrompt)", ""]
     if this_rate is not None:
         arrow = ""
         if prev_rate is not None:
@@ -99,7 +99,7 @@ def summarize(days: int = 7) -> str:
 
 
 # --------------------------------------------------------------------------
-# Progress tracker (`whetstone progress [day|week|month]`)
+# Progress tracker (`fixmyprompt progress [day|week|month]`)
 # --------------------------------------------------------------------------
 
 _BLOCKS = "▁▂▃▄▅▆▇█"
@@ -220,7 +220,7 @@ def progress(period: str = "week") -> str:
     span = end_d.strftime("%b %d") if pdays == 1 else (
         f"{start_d.strftime('%b %d')} – {end_d.strftime('%b %d')}"
     )
-    header = f"Whetstone — prompt progress ({period}: {span})"
+    header = f"FixMyPrompt — prompt progress ({period}: {span})"
     lines = [header, "─" * min(len(header), 60), ""]
 
     subs_this = _substantive(this)

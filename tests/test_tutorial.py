@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from whetstone import scorer
+from fixmyprompt import scorer
 
 GATE = Path(__file__).resolve().parent.parent / "bin" / "coach_gate.py"
 
@@ -30,7 +30,7 @@ class TutorialGateUnitTest(unittest.TestCase):
 
 class TutorialGateE2ETest(unittest.TestCase):
     def _run(self, prompt, home, extra=None):
-        env = {**os.environ, "WHETSTONE_HOME": home, "PCOACH_MODE": "always",
+        env = {**os.environ, "FIXMYPROMPT_HOME": home, "PCOACH_MODE": "always",
                "PCOACH_COOLDOWN": "0", "ANTHROPIC_API_KEY": "",
                "PATH": os.path.join(home, "nobin")}
         if extra:

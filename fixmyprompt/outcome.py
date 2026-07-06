@@ -9,7 +9,7 @@ than an UNCOACHED one.
 
 - is_correction(rec)  — pure, precision-first correction detector
 - analyze(records)    — pure, tallies correction-rate for coached vs uncoached
-- summary(days=30)    — short markdown/terminal block for `whetstone progress`
+- summary(days=30)    — short markdown/terminal block for `fixmyprompt progress`
                         and the weekly self-audit
 
 Correction detection is deliberately conservative: false positives poison the
@@ -170,7 +170,7 @@ def summary(days: int = 30) -> str:
     un, uc = stats["uncoached_n"], stats["uncoached_corrected"]
     cr, ur = stats["coached_rate"], stats["uncoached_rate"]
 
-    lines = ["## Outcomes (Whetstone)", ""]
+    lines = ["## Outcomes (FixMyPrompt)", ""]
     if cn < MIN_N or un < MIN_N:
         lines.append(
             "Not enough tracked sessions yet — outcome tracking needs live "

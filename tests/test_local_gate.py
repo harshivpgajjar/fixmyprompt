@@ -20,7 +20,7 @@ ROUGH = "build me a full analytics dashboard for the sales team so they can see 
 def run(prompt, session, home, mode="always"):
     env = {
         **os.environ,
-        "WHETSTONE_HOME": home,
+        "FIXMYPROMPT_HOME": home,
         "PCOACH_MODE": mode,
         "PCOACH_COOLDOWN": "0",
         "ANTHROPIC_API_KEY": "",          # local mode

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from whetstone import daemon, refiner
+from fixmyprompt import daemon, refiner
 
 GATE = Path(__file__).resolve().parent.parent / "bin" / "coach_gate.py"
 VAGUE = "just make the whole thing better somehow you know what i mean man"
@@ -41,10 +41,10 @@ class TutorialFailOpenTest(unittest.TestCase):
     def _gate(self, prompt, home, fake=None):
         (Path(home)).mkdir(parents=True, exist_ok=True)
         (Path(home) / "config.json").write_text(json.dumps({"tutorial": True}))
-        env = {**os.environ, "WHETSTONE_HOME": home, "PCOACH_MODE": "always",
+        env = {**os.environ, "FIXMYPROMPT_HOME": home, "PCOACH_MODE": "always",
                "PCOACH_COOLDOWN": "0", "ANTHROPIC_API_KEY": "sk-fake-for-llm-mode"}
         if fake:
-            env["WHETSTONE_FAKE_REFINE"] = fake
+            env["FIXMYPROMPT_FAKE_REFINE"] = fake
         return subprocess.run([sys.executable, str(GATE)],
                               input=json.dumps({"prompt": prompt, "session_id": "R"}),
                               capture_output=True, text=True, env=env)
@@ -68,7 +68,7 @@ class WhisperTutorialTest(unittest.TestCase):
     def _gate(self, prompt, home):
         (Path(home)).mkdir(parents=True, exist_ok=True)
         (Path(home) / "config.json").write_text(json.dumps({"tutorial": True, "mode": "whisper"}))
-        env = {**os.environ, "WHETSTONE_HOME": home, "PCOACH_COOLDOWN": "0",
+        env = {**os.environ, "FIXMYPROMPT_HOME": home, "PCOACH_COOLDOWN": "0",
                "ANTHROPIC_API_KEY": "", "PATH": os.path.join(home, "nobin")}
         return subprocess.run([sys.executable, str(GATE)],
                               input=json.dumps({"prompt": prompt, "session_id": "W"}),

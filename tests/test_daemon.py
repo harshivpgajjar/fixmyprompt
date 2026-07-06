@@ -1,4 +1,4 @@
-"""Tests for the warm-refine daemon (whetstone/daemon.py).
+"""Tests for the warm-refine daemon (fixmyprompt/daemon.py).
 
 No test spawns a real `claude` — CI/sandbox has none. Protocol behavior is
 exercised against fake unix-socket servers speaking the daemon's line protocol.
@@ -26,11 +26,11 @@ CANNED = {
 
 class DaemonTestBase(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="whetstone-test-")
-        os.environ["WHETSTONE_HOME"] = self.tmp
-        import whetstone.config as c
+        self.tmp = tempfile.mkdtemp(prefix="fixmyprompt-test-")
+        os.environ["FIXMYPROMPT_HOME"] = self.tmp
+        import fixmyprompt.config as c
         importlib.reload(c)
-        import whetstone.daemon as d
+        import fixmyprompt.daemon as d
         importlib.reload(d)
         self.d = d
         self._servers = []
@@ -41,7 +41,7 @@ class DaemonTestBase(unittest.TestCase):
                 srv.close()
             except Exception:
                 pass
-        os.environ.pop("WHETSTONE_HOME", None)
+        os.environ.pop("FIXMYPROMPT_HOME", None)
 
     # -- fake-server plumbing -------------------------------------------------
 
@@ -85,11 +85,11 @@ class DaemonTestBase(unittest.TestCase):
 
 
 class PathsTest(DaemonTestBase):
-    def test_runtime_files_land_under_whetstone_home_not_tmp(self):
+    def test_runtime_files_land_under_fixmyprompt_home_not_tmp(self):
         home = Path(self.tmp).resolve()
         for p in (self.d.socket_path(), self.d.pid_path(), self.d.log_path()):
             self.assertEqual(Path(p).resolve().parent, home,
-                             f"{p} not directly under WHETSTONE_HOME")
+                             f"{p} not directly under FIXMYPROMPT_HOME")
         # live module-level aliases too
         self.assertEqual(Path(self.d.SOCKET), self.d.socket_path())
         self.assertEqual(Path(self.d.PID), self.d.pid_path())
@@ -159,11 +159,11 @@ class ProtocolTest(DaemonTestBase):
             conn.sendall((json.dumps(CANNED) + "\n").encode())
 
         self.start_fake_server(handler)
-        out = self.d.refine("fix the flaky test", timeout=2.0, context="repo: whetstone")
+        out = self.d.refine("fix the flaky test", timeout=2.0, context="repo: fixmyprompt")
         self.assertEqual(out, CANNED)
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0]["prompt"], "fix the flaky test")
-        self.assertEqual(received[0]["context"], "repo: whetstone")
+        self.assertEqual(received[0]["context"], "repo: fixmyprompt")
 
     def test_refine_times_out_on_hanging_server(self):
         def handler(conn):

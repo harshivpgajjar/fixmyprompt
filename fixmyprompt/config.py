@@ -1,7 +1,7 @@
-"""Configuration for Whetstone.
+"""Configuration for FixMyPrompt.
 
 Precedence (low -> high): DEFAULTS < config.json < PCOACH_* environment vars.
-Runtime home is ~/.claude/whetstone (stable, git-backed, off the iCloud Desktop).
+Runtime home is ~/.claude/fixmyprompt (stable, git-backed, off the iCloud Desktop).
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 HOME = Path(os.path.expanduser("~"))
-RUNTIME_DIR = Path(os.environ.get("WHETSTONE_HOME", HOME / ".claude" / "whetstone"))
+RUNTIME_DIR = Path(os.environ.get("FIXMYPROMPT_HOME", HOME / ".claude" / "fixmyprompt"))
 CONFIG_PATH = RUNTIME_DIR / "config.json"
 
 DEFAULTS = {
@@ -44,7 +44,7 @@ DEFAULTS = {
     "model": "claude-haiku-4-5",
     "refine_timeout_sec": 15,
     # warm daemon: fast (~1.5s) AI-written rewrites on your subscription, no key.
-    # Enabled by `whetstone daemon on`. When up, the block gate shows written
+    # Enabled by `fixmyprompt daemon on`. When up, the block gate shows written
     # rewrites with y-to-send instead of the fill-in scaffold.
     "use_daemon": False,
     "daemon_timeout": 4.0,  # covers a cold first request (~2.6s); warm is ~1.7s
@@ -53,7 +53,7 @@ DEFAULTS = {
     # coaching only engages when the composite quality score is below this.
     "coach_below_quality": 0.7,
     # tutorial mode: coach EVERY real prompt (well-formed ones get an
-    # affirmation) so you learn what "good" looks like. `whetstone tutorial on`.
+    # affirmation) so you learn what "good" looks like. `fixmyprompt tutorial on`.
     "tutorial": False,
     # append a best-suited model + effort suggestion to the coaching output.
     "suggest_model": True,

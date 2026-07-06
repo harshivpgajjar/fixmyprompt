@@ -1,4 +1,4 @@
-"""Deterministic, offline refinement scaffolds — the fallback for `whetstone
+"""Deterministic, offline refinement scaffolds — the fallback for `fixmyprompt
 refine` when no LLM backend is reachable (no ANTHROPIC_API_KEY and no `claude`).
 
 These are pure, template-based nudges built from the classifier's gaps. They are

@@ -1,7 +1,7 @@
 """Tests for the refiner's parsing + fail-open behavior (no network required)."""
 import unittest
 
-from whetstone import refiner
+from fixmyprompt import refiner
 
 
 class RefinerParseTest(unittest.TestCase):

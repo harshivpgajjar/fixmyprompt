@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Whetstone installer — installs the runtime into ~/.claude/whetstone (stable,
+# FixMyPrompt installer — installs the runtime into ~/.claude/fixmyprompt (stable,
 # git-backed, OFF the iCloud-synced Desktop) and wires the UserPromptSubmit hook
 # into ~/.claude/settings.json. Idempotent. Prints exactly what it did.
 #
 # Coaching installs DISABLED by default (mode=off) so nothing changes until you
-# opt in with `whetstone on`. The /refine command and logging work immediately.
+# opt in with `fixmyprompt on`. The /refine command and logging work immediately.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEST="$HOME/.claude/whetstone"
+DEST="$HOME/.claude/fixmyprompt"
 SETTINGS="$HOME/.claude/settings.json"
-BIN_LINK="$HOME/.local/bin/whetstone"
+BIN_LINK="$HOME/.local/bin/fixmyprompt"
 
-echo "Whetstone installer"
+echo "FixMyPrompt installer"
 echo "  source : $SRC"
 echo "  runtime: $DEST"
 
@@ -39,15 +39,15 @@ if [ ! -f "$DEST/config.json" ]; then
   "model": "claude-haiku-4-5"
 }
 JSON
-  echo "  ✓ default config written (mode=off — opt in with: whetstone on)"
+  echo "  ✓ default config written (mode=off — opt in with: fixmyprompt on)"
 else
   echo "  • existing config kept"
 fi
 
 # 3. CLI on PATH
 mkdir -p "$HOME/.local/bin"
-ln -sf "$DEST/bin/whetstone" "$BIN_LINK"
-chmod +x "$DEST/bin/whetstone" "$DEST/bin/coach_gate.py" "$DEST/bin/backfill_log.py"
+ln -sf "$DEST/bin/fixmyprompt" "$BIN_LINK"
+chmod +x "$DEST/bin/fixmyprompt" "$DEST/bin/coach_gate.py" "$DEST/bin/backfill_log.py"
 echo "  ✓ CLI: $BIN_LINK  (ensure ~/.local/bin is on PATH)"
 
 # 3b. Install the /refine slash command into the user's global skills.
@@ -55,7 +55,7 @@ mkdir -p "$HOME/.claude/skills/refine"
 cp "$SRC/skills/refine/SKILL.md" "$HOME/.claude/skills/refine/SKILL.md"
 echo "  ✓ /refine skill installed"
 
-# 3c. Backfill the prompt log from real history so `whetstone report` has data.
+# 3c. Backfill the prompt log from real history so `fixmyprompt report` has data.
 python3 "$DEST/bin/backfill_log.py" 30 | sed 's/^/  • /'
 
 # 4. Wire the hook into settings.json (Python does the JSON merge safely)
@@ -87,8 +87,8 @@ PY
 
 echo
 echo "Installed. Coaching is OFF by default."
-echo "  whetstone status      # see config"
-echo "  whetstone on          # turn on live coaching (applies to NEW sessions)"
-echo "  whetstone refine \"...\" # try it right now, no session needed"
-echo "  whetstone report      # your prompting trend"
+echo "  fixmyprompt status      # see config"
+echo "  fixmyprompt on          # turn on live coaching (applies to NEW sessions)"
+echo "  fixmyprompt refine \"...\" # try it right now, no session needed"
+echo "  fixmyprompt report      # your prompting trend"
 echo "To fully remove: run ./uninstall.sh"

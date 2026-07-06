@@ -42,12 +42,23 @@ This installs the runtime to `~/.claude/whetstone` (off the iCloud Desktop), wir
 ```bash
 whetstone status          # show config
 whetstone on              # enable live coaching (mode=always)
+whetstone mode whisper    # main model asks for the missing piece (subscription, no key)
 whetstone mode sigil      # only coach prompts starting with ??  (opt-in per prompt)
 whetstone off             # disable live coaching
-whetstone refine "fix the mobile version"   # try it right now
-whetstone report          # your prompting trend (last 7 days)
+whetstone tutorial on     # coach EVERY prompt; affirm the good ones (learning mode)
+whetstone suggest "..."   # best-suited model + effort for a prompt
+whetstone progress week   # progress tracker: trend, sparkline, streak (day|week|month)
+whetstone daemon on       # fast AI-written rewrites on your subscription, no key
+whetstone refine "..."    # refine a rough prompt right now
+whetstone report          # weekly prompting trend + top gaps
 whetstone selftest        # offline classifier smoke test
 ```
+
+### Extra features
+- **Tutorial mode** (`whetstone tutorial on`): coaches *every* real prompt regardless of size/vagueness. Well-formed prompts get an **affirmation** ("Well-specified ✓ — done-state, constraints. Keep doing this") so you learn what good looks like, not just what's broken. Continuations/commands/pastes stay silent.
+- **Model + effort suggestion**: every coaching output (and `whetstone suggest`) recommends the best-suited model + effort — mechanical → Haiku·low, design/iteration → Sonnet·high, hard/architectural → Fable·xhigh.
+- **Progress tracker** (`whetstone progress [day|week|month]`): self-sufficiency trend vs the previous period, an ASCII sparkline, your current/best streak of coaching-free execute prompts, volume, and which gaps are trending down. Also auto-appears in the Saturday self-audit.
+- **Voice-dictation de-ramble**: the LLM refiner detects rambling dictation and tightens it — disfluencies stripped, self-corrections resolved, your voice kept.
 
 ## Configuration
 

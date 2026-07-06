@@ -86,6 +86,10 @@ SYSTEM_PROMPT = (
     'Return ONLY strict JSON {"needs_refinement":bool,"mode":"explore"|"execute"|"other",'
     '"refined":str,"tip":str}. '
     "Preserve the user's voice and casual/Hinglish tone; never 'correct' typos. "
+    "If the prompt is clearly voice-dictated and rambling (um/uh fillers, run-ons, "
+    "mid-sentence self-corrections), tighten it into a crisp version keeping every "
+    "real requirement and their voice — strip disfluencies, resolve self-corrections "
+    "to what they landed on. That is de-rambling, not corporate-izing. "
     "Be mode-aware: NEVER refine an intentional explore/ideation prompt "
     "(return needs_refinement=false). For execute prompts add a concrete checkable "
     "done-state. NEVER include the user's personal details (name, email, etc.) in the "

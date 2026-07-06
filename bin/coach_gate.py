@@ -166,12 +166,15 @@ def shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
-def _banner(body: str, tip: str, sendable: bool = True) -> str:
+def _banner(body: str, tip: str, kind: str = "refined") -> str:
     rule = "─" * 52
-    if sendable:
+    if kind == "refined":
         header = "── Whetstone · refined prompt (copied to clipboard) ──"
         footer = "[y ⏎] send refined   ·   [⌘V, edit, ⏎] tweak   ·   [type anything] send your own"
-    else:
+    elif kind == "affirm":
+        header = "── Whetstone · looks good ✓ ──"
+        footer = "press ⏎ to send your prompt as-is"
+    else:  # scaffold
         header = "── Whetstone · make this sharper ──"
         footer = "fill the <…> (or add the missing piece), then press ⏎ to send"
     out = [header, "", body.strip()]
@@ -274,6 +277,10 @@ def main() -> None:
             scorelog.log(prompt, features, ACTION_PASS, cfg)
             _emit_passthrough()
 
+        tutorial = bool(cfg.get("tutorial"))
+        suggestion = (scorer.suggest_model_effort(features, body)
+                      if cfg.get("suggest_model") else None)
+
         # 4b. WHISPER MODE — fully subscription, no key, no extra model call.
         # Don't block: inject a coaching note so the MAIN session model (already
         # running on the user's subscription) asks for the missing piece and
@@ -281,7 +288,12 @@ def main() -> None:
         if mode == "whisper":
             state.mark_coached(session_id)  # respect the cooldown between nudges
             scorelog.log(prompt, features, ACTION_COACH, cfg)
-            _emit_whisper(_whisper_context(features))
+            ctx = _whisper_context(features)
+            if suggestion:
+                ctx += (f"\n\nAlso tell the user in one short line: this task is best "
+                        f"suited to {suggestion['model']} at {suggestion['effort']} effort "
+                        f"({suggestion['why']}).")
+            _emit_whisper(ctx)
 
         # 5. REFINE — pick the path by whether a fast LLM is configured.
         #    LLM mode (ANTHROPIC_API_KEY set, or the test seam active): get an
@@ -293,8 +305,9 @@ def main() -> None:
         has_seam = bool(os.environ.get("WHETSTONE_FAKE_REFINE"))
         daemon_up = _daemon_up()
         llm_mode = has_api or has_seam or daemon_up
-        refined_sendable = ""  # complete text the user can send with `y`
-        banner_body = ""
+        refined_sendable = None  # None = no content produced yet
+        banner_body = None
+        banner_kind = "scaffold"
         tip = ""
         scaffold_tip = ("Name the done-state and target so it's checkable — "
                         "you get one pass instead of a back-and-forth.")
@@ -310,46 +323,52 @@ def main() -> None:
             if result.get("needs_refinement") and r:
                 refined_sendable = r
                 banner_body = r
+                banner_kind = "refined"
                 t = result.get("tip")
                 tip = t if isinstance(t, str) else ""
             elif daemon_up and not has_api and not has_seam:
-                # The daemon was our only backend and it missed/declined (cold
-                # timeout, hiccup, or a low-confidence "no"). Don't go silent —
-                # teach via the local scaffold instead.
+                # The daemon was our only backend and it missed/declined -> the
+                # local scaffold rather than silence.
                 scaffold = suggest.template(body, features)
-                if not scaffold:
-                    scorelog.log(prompt, features, ACTION_PASS, cfg)
-                    _emit_passthrough()
-                banner_body = scaffold
-                tip = scaffold_tip
-            else:
-                # A real API/seam judged "no refinement" -> respect it, pass through.
-                scorelog.log(prompt, features, ACTION_PASS, cfg)
-                _emit_passthrough()
+                if scaffold:
+                    refined_sendable = ""
+                    banner_body = scaffold
+                    tip = scaffold_tip
         else:
             scaffold = suggest.template(body, features)
-            if not scaffold:
-                scorelog.log(prompt, features, ACTION_PASS, cfg)
-                _emit_passthrough()  # nothing worth surfacing
-            banner_body = scaffold
-            refined_sendable = ""  # scaffold has <placeholders>; not auto-sendable
-            tip = scaffold_tip
+            if scaffold:
+                refined_sendable = ""
+                banner_body = scaffold
+                tip = scaffold_tip
 
-        # 6. PRESENT. Arm the one-shot bypass BEFORE emitting the block: if
-        # arming fails we fall to the outer handler and pass through instead —
-        # never show a block without loop protection already on disk. Arming
-        # with an empty string (local mode) means a bare `y` will NOT auto-send
-        # (the resubmit branch requires non-empty refined) — it just passes.
-        state.set_pending(session_id, refined_sendable)
+        # No refinement/scaffold produced. In tutorial mode, affirm the prompt so
+        # the user learns what "good" looks like; otherwise respect the judgment
+        # and pass through (fail-open).
+        if banner_body is None:
+            if tutorial:
+                refined_sendable = ""
+                banner_body = suggest.affirm(features)
+                banner_kind = "affirm"
+                tip = ""
+            else:
+                scorelog.log(prompt, features, ACTION_PASS, cfg)
+                _emit_passthrough()
+
+        # Append the best-suited model + effort suggestion to the banner.
+        if suggestion:
+            banner_body = banner_body + "\n\n" + suggest.model_line(suggestion)
+
+        # 6. PRESENT. Arm the one-shot bypass BEFORE emitting the block so the
+        # gate can never block twice in a row. Arming with "" (scaffold/affirm)
+        # means a bare `y` won't auto-send — it just passes through.
+        state.set_pending(session_id, refined_sendable or "")
         state.mark_coached(session_id)
         if refined_sendable and not os.environ.get("WHETSTONE_FAKE_REFINE"):
-            # test seam guard: skip desktop side effects while the fake refiner
-            # is active. No-op in production (env var unset).
             _clipboard(refined_sendable)
             if cfg.get("inject"):
                 _tmux_inject(refined_sendable, cfg.get("inject_delay_ms", 450))
         scorelog.log(prompt, features, ACTION_COACH, cfg)
-        _emit_block(_banner(banner_body, tip, sendable=bool(refined_sendable)))
+        _emit_block(_banner(banner_body, tip, kind=banner_kind))
     except SystemExit:
         raise
     except BaseException:

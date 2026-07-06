@@ -19,6 +19,37 @@ def cmd_report(args):
     print(report.summarize(days))
 
 
+def cmd_progress(args):
+    period = args[0] if args and args[0] in ("day", "week", "month") else "week"
+    print(report.progress(period))
+
+
+def cmd_suggest(args):
+    if not args:
+        print('usage: whetstone suggest "your prompt"')
+        return
+    prompt = " ".join(args)
+    feats = scorer.classify(prompt)
+    s = scorer.suggest_model_effort(feats, prompt)
+    print(f"mode: {feats['mode']}")
+    print(f"→ {s['model']} · {s['effort']} effort")
+    print(f"  {s['why']}")
+
+
+def cmd_tutorial(args):
+    if not args or args[0] not in ("on", "off", "status"):
+        cur = config.load().get("tutorial")
+        print(f"tutorial mode: {'on' if cur else 'off'}   (whetstone tutorial <on|off>)")
+        print("  on = coach EVERY prompt (well-formed ones get an affirmation) so you")
+        print("       learn what 'good' looks like, not just what's broken.")
+        return
+    if args[0] == "status":
+        print(f"tutorial mode: {'on' if config.load().get('tutorial') else 'off'}")
+        return
+    config.save({"tutorial": args[0] == "on"})
+    print(f"Whetstone tutorial mode: {args[0].upper()} (applies to new sessions).")
+
+
 def cmd_status(_args):
     cfg = config.load()
     print("Whetstone status")
@@ -252,6 +283,9 @@ COMMANDS = {
     "try": cmd_try,
     "daemon": cmd_daemon,
     "report": cmd_report,
+    "progress": cmd_progress,
+    "suggest": cmd_suggest,
+    "tutorial": cmd_tutorial,
     "status": cmd_status,
     "on": cmd_on,
     "off": cmd_off,
@@ -263,7 +297,8 @@ COMMANDS = {
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print("usage: whetstone <try|report|status|on|off|mode|daemon|refine|selftest>")
+        print("usage: whetstone <try|suggest|progress|report|tutorial|mode|daemon|"
+              "status|on|off|refine|selftest>")
         sys.exit(1)
     COMMANDS[sys.argv[1]](sys.argv[2:])
 

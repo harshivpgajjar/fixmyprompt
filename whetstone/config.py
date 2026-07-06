@@ -50,6 +50,11 @@ DEFAULTS = {
     "daemon_timeout": 4.0,  # covers a cold first request (~2.6s); warm is ~1.7s
     # coaching only engages when the composite quality score is below this.
     "coach_below_quality": 0.7,
+    # tutorial mode: coach EVERY real prompt (well-formed ones get an
+    # affirmation) so you learn what "good" looks like. `whetstone tutorial on`.
+    "tutorial": False,
+    # append a best-suited model + effort suggestion to the coaching output.
+    "suggest_model": True,
     # write full (redacted) prompt previews to the log for the weekly report.
     "log_previews": True,
 }

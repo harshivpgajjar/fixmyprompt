@@ -245,6 +245,28 @@ _VAGUE_TARGET = re.compile(
     re.IGNORECASE,
 )
 
+# Signals for model/effort routing (mirrors the user's own routing rules).
+_HARD_TASK = re.compile(
+    r"\b(?:architect(?:ure)?|system design|design (?:a|the) system|refactor|"
+    r"migrat|debug|root[- ]cause|race condition|concurren|deadlock|memory leak|"
+    r"performance|optimi[sz]e|algorithm|security|vulnerab|from scratch|"
+    r"end[- ]to[- ]end|whole (?:app|system|codebase|thing)|"
+    r"entire (?:app|system|codebase)|across (?:the )?(?:codebase|app|system)|"
+    r"figure out|investigate|why (?:is|does|isn'?t|won'?t|doesn'?t)|"
+    r"multi[- ]?step|distributed|scal(?:e|ing|ability)|thread|async|"
+    r"hard problem|tricky|complex)\b",
+    re.IGNORECASE,
+)
+_MECH_TASK = re.compile(
+    r"\b(?:rename|typo|spelling|bump (?:the )?version|"
+    r"update the (?:copy|text|version|readme|comment|label|wording)|"
+    r"change the (?:text|copy|colou?r|string|label|wording|font size)|"
+    r"add a (?:log|comment|console\.log|todo)|format|prettier|lint|reword|"
+    r"rephrase|tweak the (?:text|copy|label|wording)|one[- ]?liner|"
+    r"(?:small|quick|tiny|minor) (?:fix|change|tweak|edit))\b",
+    re.IGNORECASE,
+)
+
 # Structured lists: newline-anchored (classic) or inline voice-dictated
 # ("1. do x 2. do y 3. do z") — both imply the user decomposed the work.
 _NUMBERED_LINES = re.compile(r"(?:^|\n)\s*(?:\d{1,2}[.)]|[-*•])\s+\S")
@@ -393,12 +415,18 @@ def should_coach(features: dict, cfg: dict) -> bool:
     when there is plausibly something worth offering."""
     if cfg.get("mode", "off") == "off":
         return False
+    # These never get coached, even in tutorial mode — coaching them is noise.
     if features.get("is_command"):
         return False
     if features.get("is_continuation"):
         return False
     if features.get("looks_like_paste"):
         return False
+    # Tutorial mode: coach EVERY real prompt regardless of length, mode, or
+    # quality — the well-formed ones get an affirmation so the user learns what
+    # "good" looks like, not just what's broken.
+    if cfg.get("tutorial"):
+        return True
     if (features.get("word_count") or 0) < cfg.get("min_words", 12):
         return False
     # never coach intentional exploration or non-tasks
@@ -407,3 +435,38 @@ def should_coach(features: dict, cfg: dict) -> bool:
     if features.get("quality", 1.0) >= cfg.get("coach_below_quality", 0.7):
         return False
     return True
+
+
+# --------------------------------------------------------------------------
+# Model + effort suggestion — routes the prompt to the best-suited model/effort
+# using the user's own routing rules (Fable for hard/ambiguous, Sonnet for
+# everyday feature/design iteration, Haiku for mechanical edits).
+# --------------------------------------------------------------------------
+
+def suggest_model_effort(features: dict, prompt: str) -> dict:
+    """Return {"model", "effort", "why"} — the best-suited model + effort for
+    this prompt. Pure, deterministic, instant (no LLM)."""
+    prompt = prompt or ""
+    mode = features.get("mode", "other")
+    wc = features.get("word_count", 0) or 0
+    gaps = features.get("gaps", []) or []
+    is_design = features.get("is_design", False)
+    hard = bool(_HARD_TASK.search(prompt))
+    mech = bool(_MECH_TASK.search(prompt))
+
+    if mech and not hard:
+        return {"model": "Haiku 4.5", "effort": "low",
+                "why": "mechanical edit — cheap and fast is all it needs"}
+    # design/ideation (incl. "blow me away") → fast-iterating model, not raw power
+    if mode == "explore" or (is_design and mode == "execute"):
+        return {"model": "Sonnet 5", "effort": "high",
+                "why": "design/iteration — fast turns matter more than raw power"}
+    # hard/architectural, or a big under-specified build → top model
+    if hard or (mode == "execute" and wc >= 45) \
+            or (mode == "execute" and len(gaps) >= 3 and wc >= 30):
+        return {"model": "Fable 5", "effort": "xhigh",
+                "why": "hard, ambiguous, or architectural — the top model earns it here"}
+    if mode == "execute":
+        return {"model": "Sonnet 5", "effort": "high", "why": "standard feature work"}
+    return {"model": "Sonnet 5", "effort": "medium",
+            "why": "straightforward — no need for the top tier"}

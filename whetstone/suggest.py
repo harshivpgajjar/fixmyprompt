@@ -36,3 +36,26 @@ def template(prompt: str, features: dict) -> str | None:
     lines = [prompt.strip(), ""]
     lines += [f"+ {a}" for a in adds]
     return "\n".join(lines)
+
+
+def affirm(features: dict) -> str:
+    """A short affirmation for a well-formed prompt (tutorial mode) — names what
+    makes it good so the user reinforces the pattern, never fabricates a flaw."""
+    good = []
+    if features.get("mode") == "explore":
+        return ("Good exploration ask — open-ended on purpose. Tip: add "
+                "'as N distinct single screens' to keep it cheap and comparable.")
+    if features.get("has_done_criteria"):
+        good.append("a checkable done-state")
+    if features.get("has_constraints"):
+        good.append("clear constraints")
+    if features.get("has_reference") and features.get("is_design"):
+        good.append("a design reference")
+    if not good:
+        return "Clear, scoped instruction — nothing to add. Keep it this tight."
+    return "Well-specified ✓ — " + ", ".join(good) + ". Keep doing exactly this."
+
+
+def model_line(sug: dict) -> str:
+    """One-line model/effort suggestion for the coaching banner."""
+    return f"→ suggested: {sug['model']} · {sug['effort']}  ({sug['why']})"

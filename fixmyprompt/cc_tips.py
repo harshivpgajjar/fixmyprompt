@@ -1,26 +1,131 @@
-"""Claude Code feature tips — teach users the built-in features that make them
-more efficient, surfaced at the moment a prompt signals the relevant situation.
+"""Claude Code feature catalog + situational tips.
 
-Prompt-quality coaching is only half of "get better at Claude Code". The other
-half is knowing WHEN to reach for /clear, /goal, plan mode, subagents, etc.
-This module detects situational signals in the prompt and returns one relevant,
-verified tip.
+Two jobs:
+  1. A browsable CATALOG of Claude Code efficiency features (`fixmyprompt
+     features`) — each with a use-case and its token/time trade-off — so hidden
+     features are discoverable and users pick the right tool for the task.
+  2. SITUATIONAL tips surfaced during coaching (`analyze`) — when a prompt
+     signals a specific situation, suggest the one most relevant feature.
 
-Only features verified against the current Claude Code docs are used here — no
-invented command names. Pure/deterministic; no I/O, no network.
-
-analyze(prompt, features) -> {"tip": str, "engage": bool} | None
-  - "engage": whether this tip is worth surfacing even on an already well-formed
-    prompt (True for the high-value context-switch / big-goal cues the user most
-    benefits from). Lower-value tips only ride along when the gate already fires.
+Every entry is verified against the current Claude Code docs (code.claude.com/
+docs) — no invented command names. Notably there is NO "ultrathink" magic word;
+it is folklore replaced by /effort, so we redirect that misconception instead of
+shipping it. Pure/deterministic; no I/O, no network.
 """
 from __future__ import annotations
 
 import re
 
-# 1. Starting NEW or unrelated work — the highest-value cue. A fresh/bloated
-#    context degrades output (official guidance) and wastes tokens; /clear or
-#    /compact first. Precision-first: needs a genuine new-work / switch cue.
+# --------------------------------------------------------------------------
+# FEATURE CATALOG — grouped by category. Each: name, use (when to use it),
+# tradeoff (token/time cost or saving). Doc-verified; curated to the features
+# that actually change your token/time efficiency.
+# --------------------------------------------------------------------------
+
+FEATURES: list[dict] = [
+    # --- Context management ---
+    {"name": "/clear", "category": "Context",
+     "use": "Switching to unrelated work or starting fresh (the old thread stays resumable via /resume).",
+     "tradeoff": "Saves tokens on every later turn; a bloated context degrades output and loses early instructions."},
+    {"name": "/compact [focus]", "category": "Context",
+     "use": "A long session you still need — replace history with a summary, optionally focused (e.g. /compact focus on the API changes).",
+     "tradeoff": "Spends one summarization pass now to save tokens on every turn after; detail is dropped, so keep durable rules in CLAUDE.md."},
+    {"name": "/context", "category": "Context",
+     "use": "See exactly what's filling the context window.",
+     "tradeoff": "Free, instant readout — tells you when it's time to /compact or /clear."},
+
+    # --- Reasoning depth ---
+    {"name": "/effort <low|medium|high|xhigh|max>", "category": "Reasoning",
+     "use": "Dial reasoning to the task: low for simple/high-volume work, xhigh/max for the hardest problems (high is the default). This replaces the folklore 'ultrathink'.",
+     "tradeoff": "Higher levels spend more thinking tokens + time for better answers; lower is faster and cheaper. Persists across sessions (max lasts only the current one)."},
+    {"name": "Plan mode (Shift+Tab)", "category": "Reasoning",
+     "use": "Explore the code and agree on an approach BEFORE any edits.",
+     "tradeoff": "Costs a planning round up front; saves the far larger cost of undoing wrong changes."},
+
+    # --- Model selection ---
+    {"name": "/model <sonnet|haiku|opus|opusplan>", "category": "Model",
+     "use": "Match the model to the task — haiku for mechanical/cheap work, sonnet (default) for most coding, opus for deep reasoning, opusplan to plan on Opus then build on Sonnet.",
+     "tradeoff": "Cheaper models save tokens+time at lower capability; premium models cost more but reason better. Switching itself is free."},
+
+    # --- Delegation & parallelism ---
+    {"name": "Subagents (\"use a subagent to …\")", "category": "Delegation",
+     "use": "A verbose side task (research, log analysis, verification) that would flood your main thread with output you won't reuse.",
+     "tradeoff": "Keeps your main context lean — only the summary returns; spends tokens on the subagent's own context in exchange."},
+    {"name": "/goal <condition>", "category": "Delegation",
+     "use": "A big task with a verifiable finish line — Claude keeps working until the condition is met, no re-prompting.",
+     "tradeoff": "Spends tokens/time autonomously; saves you from babysitting and typing 'continue'."},
+    {"name": "/loop [interval] <prompt>", "category": "Delegation",
+     "use": "Run a prompt on a recurring interval or let Claude self-pace repeated passes.",
+     "tradeoff": "Spends tokens each recurrence; saves the manual re-prompting for scheduled or set-and-forget work."},
+    {"name": "Parallel agents (Agent view)", "category": "Delegation",
+     "use": "Run many isolated tasks at once and monitor them from one screen.",
+     "tradeoff": "Saves wall-clock time by parallelizing; spends tokens proportional to the number of agents (each is its own context)."},
+
+    # --- Input methods ---
+    {"name": "@file / @dir", "category": "Input",
+     "use": "Point Claude straight at a file or directory instead of describing it or pasting it.",
+     "tradeoff": "Spends context on exactly what you name — cheaper and more precise than letting Claude hunt for it."},
+    {"name": "Vision (paste/drag an image)", "category": "Input",
+     "use": "Implement UI from a mockup/screenshot, or debug a visual bug — drop the image right into the terminal.",
+     "tradeoff": "Spends vision tokens on the image; saves the far longer effort of describing a layout in words."},
+
+    # --- Output & artifacts ---
+    {"name": "Artifacts (\"make an artifact …\")", "category": "Output",
+     "use": "Output that's easier to see than to read — annotated diffs, dashboards, charts, comparison layouts you can open in the browser.",
+     "tradeoff": "Spends more output tokens than plain terminal text (inline CSS/JS); worth it for visual clarity and one-URL sharing."},
+
+    # --- History & recovery ---
+    {"name": "/rewind (or Esc twice)", "category": "History",
+     "use": "Undo a wrong turn — restore code, conversation, or both to an earlier checkpoint (one is saved at every prompt).",
+     "tradeoff": "Free recovery; cheaper than re-explaining or hand-undoing changes. Note: bash and external file edits aren't checkpointed."},
+
+    # --- Memory ---
+    {"name": "CLAUDE.md", "category": "Memory",
+     "use": "Store always-on project conventions, build commands, and constraints so you never re-explain them.",
+     "tradeoff": "Loads every session (keep it tight, ~under 200 lines), but survives compaction — unlike instructions buried in the chat."},
+    {"name": "/memory  (+ \"remember that …\")", "category": "Memory",
+     "use": "View/edit persistent memory, or let Claude auto-save build commands and preferences across sessions.",
+     "tradeoff": "Saves re-explaining patterns next time; small write cost now. Path-scoped rules load only for matching files."},
+
+    # --- Sessions ---
+    {"name": "claude --continue / --resume", "category": "Sessions",
+     "use": "Pick up prior work in a directory — most recent (--continue) or from a picker (--resume).",
+     "tradeoff": "Saves rebuilding context; history resumes intact."},
+    {"name": "/branch  (--fork-session)", "category": "Sessions",
+     "use": "Try a different approach without losing the original session.",
+     "tradeoff": "Forks from a checkpoint into an independent branch; the original stays untouched."},
+    {"name": "/export", "category": "Sessions",
+     "use": "Save a readable transcript to share or archive.",
+     "tradeoff": "No token cost; a human-readable file instead of copy-pasting."},
+
+    # --- Diagnostics ---
+    {"name": "/usage", "category": "Diagnostics",
+     "use": "See what's actually consuming tokens — per session, skill, subagent, and MCP server.",
+     "tradeoff": "Free; stops you guessing where the spend goes."},
+    {"name": "/permissions", "category": "Diagnostics",
+     "use": "Pre-approve trusted tools/commands so Claude stops asking each time.",
+     "tradeoff": "Saves repeated approval prompts; no token cost."},
+]
+
+_CATEGORY_ORDER = ["Context", "Reasoning", "Model", "Delegation", "Input",
+                   "Output", "History", "Memory", "Sessions", "Diagnostics"]
+
+
+# --------------------------------------------------------------------------
+# SITUATIONAL triggers — when a prompt matches, surface one relevant tip during
+# coaching. Priority order top-to-bottom. `engage`: surface even on an already
+# well-formed prompt (True) vs only ride along when the gate already coaches.
+# --------------------------------------------------------------------------
+
+# The "ultrathink" myth: a magic-word attempt to force deeper thinking. It isn't
+# real — redirect to /effort. Matched narrowly so normal English ("think about
+# the design") never trips it.
+_ULTRATHINK = re.compile(
+    r"\b(?:ultra[- ]?think(?:ing)?|mega[- ]?think(?:ing)?|"
+    r"think (?:harder|hard|deeply|really hard) mode|"
+    r"(?:use|enable|turn on) (?:extended |deep )?thinking(?: mode)?)\b",
+    re.IGNORECASE,
+)
 _NEW_WORK = re.compile(
     r"\b(?:"
     r"new feature|add(?:ing)? (?:a |another )?new (?:\w+ ){0,3}?feature|"
@@ -33,9 +138,6 @@ _NEW_WORK = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-
-# 2. A big task with a verifiable finish line — /goal keeps Claude working
-#    until the condition is actually met.
 _BIG_GOAL = re.compile(
     r"\b(?:"
     r"until (?:it works|all tests? pass|everything|done|it'?s done|complete)|"
@@ -47,9 +149,6 @@ _BIG_GOAL = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-
-# 3. Broad / multi-file / whole-codebase work — subagents fan it out and keep
-#    the main context clean.
 _BROAD = re.compile(
     r"\b(?:"
     r"across (?:the )?(?:codebase|repo|project|app|whole)|"
@@ -61,6 +160,10 @@ _BROAD = re.compile(
     re.IGNORECASE,
 )
 
+_TIP_ULTRATHINK = (
+    "💡 There's no \"ultrathink\" magic word in Claude Code — that's folklore. "
+    "Use /effort xhigh (or /effort max for a single hardest task) to actually dial up reasoning."
+)
 _TIP_NEW_WORK = (
     "💡 Starting new/unrelated work? Run /clear first (or /compact to keep a summary). "
     "Claude's output degrades as the context fills — a fresh start saves tokens and avoids sloppy results."
@@ -82,16 +185,15 @@ _TIP_BROAD = (
 def analyze(prompt: str, features: dict) -> dict | None:
     """Return the single most relevant Claude Code feature tip, or None."""
     prompt = prompt or ""
-    # priority: new-work > big-goal > broad (breadth → subagents) > hard (→ plan).
-    # broad is checked before hard because a wide search ("across the codebase")
-    # is better served by subagents than by plan mode, and some phrases match both.
+    # priority: ultrathink myth > new-work > big-goal > broad (→ subagents) > hard (→ plan).
+    if _ULTRATHINK.search(prompt):
+        return {"tip": _TIP_ULTRATHINK, "engage": True}
     if _NEW_WORK.search(prompt):
         return {"tip": _TIP_NEW_WORK, "engage": True}
     if _BIG_GOAL.search(prompt):
         return {"tip": _TIP_BIG_GOAL, "engage": True}
     if _BROAD.search(prompt):
         return {"tip": _TIP_BROAD, "engage": False}
-    # hard/architectural → plan mode; only rides along when already coaching.
     try:
         from .scorer import _HARD_TASK
         if _HARD_TASK.search(prompt):
@@ -99,3 +201,29 @@ def analyze(prompt: str, features: dict) -> dict | None:
     except Exception:
         pass
     return None
+
+
+def catalog(category: str | None = None) -> str:
+    """A browsable, grouped reference of Claude Code efficiency features with
+    use-case and token/time trade-off."""
+    want = category.strip().lower() if category else None
+    cats: dict[str, list[dict]] = {}
+    for f in FEATURES:
+        cats.setdefault(f["category"], []).append(f)
+    ordered = [c for c in _CATEGORY_ORDER if c in cats] + [c for c in cats if c not in _CATEGORY_ORDER]
+    out = ["Claude Code efficiency features — pick the right tool for the task.", ""]
+    shown = 0
+    for cat in ordered:
+        if want and want != cat.lower():
+            continue
+        out.append(f"── {cat} ──")
+        for f in cats[cat]:
+            out.append(f"  {f['name']}")
+            out.append(f"      use:   {f['use']}")
+            out.append(f"      cost:  {f['tradeoff']}")
+            shown += 1
+        out.append("")
+    if want and shown == 0:
+        return (f"No category '{category}'. Try one of: "
+                + ", ".join(sorted({f['category'] for f in FEATURES})))
+    return "\n".join(out).rstrip() + "\n"

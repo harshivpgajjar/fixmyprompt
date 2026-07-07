@@ -47,11 +47,22 @@ def cmd_tips(args):
     """Show the Claude Code feature tip a prompt would trigger (if any)."""
     if not args:
         print('usage: fixmyprompt tips "your prompt"')
-        print("Surfaces a relevant Claude Code feature (/clear, /goal, plan mode, subagents)")
+        print("Surfaces the one Claude Code feature most relevant to a prompt.")
+        print("Browse the full catalog with:  fixmyprompt features")
         return
     prompt = " ".join(args)
     cc = cc_tips.analyze(prompt, scorer.classify(prompt))
-    print(cc["tip"] if cc else "No Claude Code feature tip for this prompt.")
+    if cc:
+        print(cc["tip"])
+    else:
+        print("No situational tip for this prompt. Browse all features: fixmyprompt features")
+
+
+def cmd_features(args):
+    """Browse the full catalog of Claude Code efficiency features — use-case and
+    token/time trade-off for each. Optionally filter by category."""
+    category = " ".join(args) if args else None
+    print(cc_tips.catalog(category))
 
 
 _DIGEST_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.digest.plist"
@@ -427,6 +438,7 @@ COMMANDS = {
     "progress": cmd_progress,
     "suggest": cmd_suggest,
     "tips": cmd_tips,
+    "features": cmd_features,
     "tutorial": cmd_tutorial,
     "project": cmd_project,
     "digest": cmd_digest,
@@ -442,8 +454,8 @@ COMMANDS = {
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print("usage: fixmyprompt <try|suggest|progress|report|tutorial|mode|daemon|"
-              "status|on|off|refine|selftest>")
+        print("usage: fixmyprompt <try|suggest|features|tips|progress|report|tutorial|"
+              "mode|daemon|status|on|off|refine|selftest>")
         sys.exit(1)
     COMMANDS[sys.argv[1]](sys.argv[2:])
 

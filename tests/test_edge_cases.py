@@ -27,13 +27,30 @@ def _load_gate_module():
 
 
 class LargePromptPerfTest(unittest.TestCase):
-    """A long single-line paste (minified JS, base64, a JWT, a long path list)
-    used to hit O(n²) backtracking in the reference regex and freeze the hook
-    for up to its 20s timeout. classify() must now stay fast."""
+    """A long single-line paste (minified JS, base64, a JWT, a long dotted
+    identifier or path chain) used to hit O(n²) backtracking in the lexicon
+    regexes and freeze the submit hook. These tests exercise the pathological
+    regexes DIRECTLY (bypassing classify's 8000-char cap) so they would fail if
+    the bounding fix were reverted — plus the through-classify defense."""
+
+    # --- direct-regex ReDoS guards (would catch a reverted bounding fix) ---
+    def test_reference_regex_no_catastrophic_backtracking(self):
+        evil = "a" * 100000 + ".x"   # long non-space run then a near-miss TLD dot
+        self.assertLess(_timed(lambda: scorer._REFERENCE.search(evil)), 0.5)
+
+    def test_constraint_regex_no_catastrophic_backtracking(self):
+        for evil in ("a." * 6000, "aB3-_d." * 2000):  # dotted chain / JWT-shape
+            dt = _timed(lambda e=evil: scorer._CONSTRAINT.search(e))
+            self.assertLess(dt, 0.5, f"_CONSTRAINT backtracks on {evil[:8]}…: {dt:.2f}s")
+
+    def test_classify_near_miss_tld_and_dotted_chain_are_fast(self):
+        # realistic shapes THROUGH classify (exercises the 8000-char truncation
+        # defense on inputs that actually enter the pathological branch)
+        for blob in ("token " + "a" * 60000 + ".xyz", "attr " + "a." * 30000):
+            self.assertLess(_timed(lambda b=blob: scorer.classify(b)), 0.6, blob[:20])
 
     def test_classify_large_single_line_is_fast(self):
-        for blob in ("a=1;" * 30000, "x" * 120000, "/very/long/path" * 8000,
-                     "aGVsbG8" * 20000):  # base64-ish single run
+        for blob in ("a=1;" * 30000, "x" * 120000, "/a/b.c/d" * 15000):
             dt = _timed(lambda b=blob: scorer.classify(b))
             self.assertLess(dt, 1.0, f"classify() took {dt:.2f}s on {len(blob)} chars")
 
@@ -41,10 +58,13 @@ class LargePromptPerfTest(unittest.TestCase):
         # the regexes scan a bounded copy, but word_count reflects the full text
         self.assertEqual(scorer.classify("word " * 5000)["word_count"], 5000)
 
-    def test_reference_still_detected_after_bounding(self):
-        # bounding the pre-dot run must not break normal reference detection
+    def test_reference_and_filename_still_detected_after_bounding(self):
+        # bounding the pre-dot runs must not break legitimate detection
         self.assertTrue(scorer.classify("make it like apple.com")["has_reference"])
         self.assertTrue(scorer.classify("similar to the attached screenshot")["has_reference"])
+        # _CONSTRAINT filename branch still fires on real paths
+        self.assertTrue(scorer._CONSTRAINT.search("edit src/components/Hero.tsx"))
+        self.assertTrue(scorer._CONSTRAINT.search("~/.config/app.py"))
 
 
 class ConfigCorruptionTest(unittest.TestCase):
@@ -71,6 +91,39 @@ class ConfigCorruptionTest(unittest.TestCase):
         result = config.save({"mode": "always"})
         self.assertEqual(result["mode"], "always")
 
+    def test_load_survives_non_dict_config(self):
+        config.CONFIG_PATH.write_text("[1, 2, 3]")   # a JSON array, not an object
+        cfg = config.load()                            # must not raise
+        self.assertIsInstance(cfg, dict)
+        self.assertEqual(cfg["mode"], config.DEFAULTS["mode"])  # falls back to defaults
+
+
+class ScorelogCoercionTest(unittest.TestCase):
+    """scorelog.read() must tolerate a hand-corrupted log line (non-numeric/null
+    ts, a non-dict record, garbage) without crashing report/progress/streak."""
+
+    def setUp(self):
+        from fixmyprompt import scorelog
+        self._sl = scorelog
+        self._dir = tempfile.mkdtemp()
+        self._orig = scorelog.LOG_PATH
+        scorelog.LOG_PATH = Path(self._dir) / "prompt-log.jsonl"
+
+    def tearDown(self):
+        self._sl.LOG_PATH = self._orig
+
+    def test_read_coerces_bad_ts_and_skips_garbage(self):
+        self._sl.LOG_PATH.write_text(
+            '{"ts": "not-a-number", "action": "coach"}\n'
+            '{"ts": null, "action": "pass"}\n'
+            'this is not json at all\n'
+            '[1,2,3]\n'
+            '{"ts": 1783398216.3, "action": "edit"}\n'
+        )
+        recs = self._sl.read()  # must not raise
+        self.assertEqual(len(recs), 3)                 # 2 coerced + 1 valid; garbage/list skipped
+        self.assertTrue(all(isinstance(r["ts"], float) for r in recs))
+
 
 class ImageAttachmentTest(unittest.TestCase):
     """Blocking a submission discards it, and a hook cannot re-inject a pasted
@@ -94,24 +147,38 @@ class ImageAttachmentTest(unittest.TestCase):
         return subprocess.run([sys.executable, str(GATE)], input=json.dumps(payload),
                               capture_output=True, text=True, env=env).stdout.strip()
 
-    def test_image_vague_prompt_is_not_blocked(self):
-        out = self._gate("make this better and cleaner please [Image #1]")
-        if out:  # if it engaged at all, it must be a whisper, never a block
-            data = json.loads(out)
-            self.assertNotEqual(data.get("decision"), "block")
-            self.assertIn("hookSpecificOutput", data)
+    def test_image_engaging_prompt_whispers_never_blocks(self):
+        # a prompt that WOULD be coached, plus an image -> must ENGAGE (non-empty)
+        # and be a non-blocking whisper, never a block. (Non-vacuous: asserts out.)
+        out = self._gate("make the whole thing better and nicer somehow [Image #1]")
+        self.assertTrue(out, "expected the gate to engage (whisper), not stay silent")
+        data = json.loads(out)
+        self.assertNotEqual(data.get("decision"), "block")
+        self.assertIn("hookSpecificOutput", data)
 
-    def test_image_never_blocks_across_shapes(self):
-        for p in ["redo this [Image #3]", "match this design [Image]",
-                  "fix per [pasted image 2]"]:
+    def test_image_never_blocks_across_realistic_markers(self):
+        # includes the macOS screenshot filename shape that the old 24-char
+        # marker bound missed, plus [Image: path] and <image>.
+        for p in ["redo this whole thing better [Image #3]",
+                  "improve all of it [pasted image 2]",
+                  "match this [Screenshot 2026-07-07 at 10.14.32.png] exactly please",
+                  "rebuild everything from [Image: /Users/x/shot.png] to spec",
+                  "make it like the <image> mock, all of it"]:
             out = self._gate(p)
-            if out:
+            if out:  # some may be silent (also image-safe); if engaged, never block
                 self.assertNotEqual(json.loads(out).get("decision"), "block", p)
 
-    def test_image_via_stdin_field_not_blocked(self):
-        # image conveyed as a separate stdin field (not a text marker)
-        out = self._gate_raw({"prompt": "make this nicer overall",
-                              "session_id": "z", "images": ["/tmp/x.png"]})
+    def test_image_via_stdin_field_or_value_not_blocked(self):
+        for payload in ({"prompt": "make this nicer overall and cleaner too",
+                         "session_id": "z", "images": ["/tmp/x.png"]},
+                        {"prompt": "improve the whole thing a lot",
+                         "session_id": "z2", "attachment": "data:image/png;base64,iVBOR"}):
+            out = self._gate_raw(payload)
+            if out:
+                self.assertNotEqual(json.loads(out).get("decision"), "block")
+
+    def test_image_in_sigil_mode_not_blocked(self):
+        out = self._gate("make this nicer [Image #4]", mode="sigil")
         if out:
             self.assertNotEqual(json.loads(out).get("decision"), "block")
 
@@ -123,11 +190,21 @@ class ImageAttachmentTest(unittest.TestCase):
 
     def test_has_attachment_detection(self):
         cg = _load_gate_module()
-        self.assertTrue(cg._has_attachment({}, "do this [Image #2]"))
-        self.assertTrue(cg._has_attachment({}, "see [Image]"))
+        # markers, incl. long macOS screenshot filenames, [Image: path], <image>
+        for p in ["do this [Image #2]", "see [Image]",
+                  "[Screenshot 2026-07-07 at 10.14.32.png]",
+                  "look at [screenshot from 2024-01-01 at 3.45.12 PM.png]",
+                  "[Image: /Users/foo/bar/screenshot.png]", "here is an <image> tag"]:
+            self.assertTrue(cg._has_attachment({}, p), p)
+        # field keys and image-shaped field values
         self.assertTrue(cg._has_attachment({"images": ["a.png"]}, "go"))
         self.assertTrue(cg._has_attachment({"attachments": [1]}, "go"))
-        self.assertFalse(cg._has_attachment({}, "a prompt discussing images abstractly"))
+        self.assertTrue(cg._has_attachment({"foo": "data:image/png;base64,iVBOR"}, "go"))
+        self.assertTrue(cg._has_attachment({"foo": "/tmp/shot.png"}, "go"))
+        # negatives: prose mentioning images, empty fields
+        for p in ["a prompt discussing images abstractly", "fix the login bug",
+                  "make the navbar sticky on scroll"]:
+            self.assertFalse(cg._has_attachment({}, p), p)
         self.assertFalse(cg._has_attachment({"images": []}, "no attachment here"))
 
 

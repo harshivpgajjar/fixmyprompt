@@ -56,8 +56,16 @@ from fixmyprompt import (  # noqa: E402
 _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it", "ship it", "go"}
 
 # An attached/pasted image shows up as a bracketed marker in the prompt text.
-# The exact wire format isn't documented, so match the common shapes.
-_IMAGE_MARKER = re.compile(r"\[(?:image|pasted image|screenshot)\b[^\]]{0,24}\]", re.IGNORECASE)
+# The exact wire format isn't documented, so match generously — a bracketed run
+# containing image/screenshot/pasted (incl. a filename like
+# "[Screenshot 2026-07-07 at 10.14.32.png]"), or an <image> tag. The [^\]]/[^>]
+# runs are bounded so this can't backtrack on a huge paste.
+_IMAGE_MARKER = re.compile(
+    r"\[[^\]]{0,120}?(?:image|screenshot|pasted)[^\]]{0,120}?\]|<image[^>]{0,60}>",
+    re.IGNORECASE,
+)
+# An image conveyed as a path or data-URI inside any field value.
+_IMAGE_VALUE = re.compile(r"data:image/|\.(?:png|jpe?g|gif|webp|bmp|svg|heic|heif)\b", re.IGNORECASE)
 
 
 def _has_attachment(data: dict, prompt: str) -> bool:
@@ -66,13 +74,17 @@ def _has_attachment(data: dict, prompt: str) -> bool:
     Blocking a submission discards it, and a hook has no channel to re-inject a
     pasted image — so a blocked image-bearing prompt loses its image on resubmit.
     We must therefore never BLOCK these (we whisper or pass instead). The wire
-    format for attachments isn't documented, so detect defensively: any
-    attachment-shaped field in the hook payload, OR an image marker in the text.
-    A false positive only means we coach non-blockingly instead of blocking —
-    harmless — so we err toward detecting."""
+    format for attachments isn't documented, so detect defensively across three
+    channels: an attachment-shaped field key, an image path/data-URI in any field
+    value, or an image marker in the prompt text. A false positive only means we
+    coach non-blockingly instead of blocking — harmless — so we err toward
+    detecting. (Set FIXMYPROMPT_DEBUG_STDIN=1 to confirm the real wire format.)"""
     for key in ("images", "image", "attachments", "attachment", "files",
                 "image_paths", "media"):
         if data.get(key):
+            return True
+    for v in data.values():
+        if isinstance(v, str) and _IMAGE_VALUE.search(v):
             return True
     return bool(_IMAGE_MARKER.search(prompt or ""))
 
@@ -273,9 +285,9 @@ def main() -> None:
         if os.environ.get("FIXMYPROMPT_DEBUG_STDIN"):
             try:
                 config.RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-                (config.RUNTIME_DIR / "stdin-keys.log").open("a").write(
-                    json.dumps({"keys": sorted(map(str, data.keys())),
-                                "image_detected": has_attachment}) + "\n")
+                with (config.RUNTIME_DIR / "stdin-keys.log").open("a") as fh:
+                    fh.write(json.dumps({"keys": sorted(map(str, data.keys())),
+                                         "image_detected": has_attachment}) + "\n")
             except Exception:
                 pass
         session_id = data.get("session_id")

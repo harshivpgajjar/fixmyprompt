@@ -5,6 +5,12 @@ The load-bearing invariant: after the gate blocks a prompt it writes a pending
 flag; the very next submission in that session consumes the flag and passes
 through unconditionally. The hook therefore can NEVER block twice in a row —
 no refine loops are possible, and "send my original" always costs one Enter.
+
+This guarantee assumes SERIAL submission within a session (the real usage — a
+human submits one prompt at a time). take_pending is read-then-unlink without
+a lock, so many simultaneous submissions in one session could race; the
+worst case is a redundant coach, never a crash or a wrong send (the gate still
+fails open and emits valid-JSON-or-empty on every path).
 """
 from __future__ import annotations
 

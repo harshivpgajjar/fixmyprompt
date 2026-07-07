@@ -168,8 +168,11 @@ def _via_cli(prompt: str, system: str, cfg: dict) -> dict | None:
         + prompt
     )
     try:
+        # Feed the prompt on stdin, not argv — argv is world-visible via `ps`,
+        # and the prompt can contain sensitive content.
         proc = subprocess.run(
-            ["claude", "-p", "--model", cfg["model"], combined],
+            ["claude", "-p", "--model", cfg["model"]],
+            input=combined,
             capture_output=True,
             text=True,
             timeout=cfg.get("refine_timeout_sec", 15),

@@ -443,6 +443,13 @@ def _serve() -> None:
     cfg = config.load()
     rt = Path(config.RUNTIME_DIR)
     rt.mkdir(parents=True, exist_ok=True)
+    # Owner-only on the dir that holds the refine socket: on macOS, AF_UNIX
+    # connect permission is governed by the directory, so this (with the socket's
+    # own 0600) keeps other local users off the daemon (and off your quota).
+    try:
+        os.chmod(rt, 0o700)
+    except OSError:
+        pass
     sp = socket_path()
     if sp.exists():
         # live daemon already on this socket? then this instance must bow out

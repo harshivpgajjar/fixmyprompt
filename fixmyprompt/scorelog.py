@@ -26,10 +26,24 @@ def set_context(session_id=None, cwd=None) -> None:
     _CTX["session_id"] = session_id
     _CTX["cwd"] = cwd
 
+# Match the key formats people actually paste. The unbounded runs are over
+# classes that EXCLUDE '.', and JWT segments are '.'-separated, so there's no
+# catastrophic-backtracking ambiguity. Bare-word "password"/"token" are NOT
+# redacted on their own (that would hide normal prompts like "add a password
+# field"); only the key=value form is.
 _SECRET = re.compile(
-    r"(sk-[A-Za-z0-9]{8,}|r8_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_\-]{10,}|"
-    r"ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN|"
-    r"(api[_-]?key|secret|password|token)\s*[:=]\s*\S+)",
+    r"(sk-[A-Za-z0-9_-]{8,}|"                       # OpenAI / Anthropic (sk-, sk-ant-, sk-proj-)
+    r"r8_[A-Za-z0-9]{8,}|"                          # Replicate
+    r"AIza[A-Za-z0-9_-]{10,}|"                      # Google
+    r"gh[pousr]_[A-Za-z0-9]{20,}|"                  # GitHub tokens
+    r"github_pat_[A-Za-z0-9_]{20,}|"                # GitHub fine-grained PAT
+    r"glpat-[A-Za-z0-9_-]{10,}|"                    # GitLab PAT
+    r"xox[baprs]-[A-Za-z0-9-]{10,}|"                # Slack
+    r"AKIA[0-9A-Z]{16}|"                            # AWS access key id
+    r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*|"  # JWT (header.payload.sig)
+    r"Bearer\s+[A-Za-z0-9._/+-]{12,}|"              # bearer token
+    r"-----BEGIN|"                                  # PEM private key
+    r"(api[_-]?key|secret|password|passwd|token|access[_-]?token|private[_-]?key)\s*[:=]\s*\S+)",
     re.IGNORECASE,
 )
 
@@ -37,9 +51,13 @@ _SECRET = re.compile(
 def _preview(prompt: str, cfg: dict) -> str:
     if not cfg.get("log_previews", True):
         return ""
-    if _SECRET.search(prompt or ""):
+    # The preview is only the first 140 chars, so scan a bounded slice — a secret
+    # past that can't appear in the preview anyway, and this keeps _preview O(1)
+    # on a huge paste.
+    prompt = (prompt or "")[:2000]
+    if _SECRET.search(prompt):
         return "[redacted: possible secret]"
-    p = re.sub(r"\s+", " ", (prompt or "")).strip()
+    p = re.sub(r"\s+", " ", prompt).strip()
     return p[:140]
 
 

@@ -15,7 +15,10 @@ _LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "co
 
 
 def cmd_report(args):
-    days = int(args[0]) if args else 7
+    try:
+        days = int(args[0]) if args else 7
+    except (IndexError, ValueError):
+        days = 7
     print(report.summarize(days))
     print(outcome.summary(days=30))
 

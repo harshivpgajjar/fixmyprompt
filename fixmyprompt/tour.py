@@ -103,13 +103,18 @@ def run(cli_path: str | None = None, interactive: bool | None = None) -> None:
     print("  like, not just what's broken. It's on by default while you're learning.")
     print(f"  {_c('2', 'Turn it off anytime:  fixmyprompt tutorial off')}")
     if interactive:  # only the interactive walkthrough changes settings
+        want = None
         if not cfg.get("tutorial"):
-            if _ask_yn(interactive, "Turn teach-mode ON now?", True):
-                config.save({"tutorial": True})
-                print(_c("32", "    ✓ teach-mode ON (new sessions)"))
+            want = _ask_yn(interactive, "Turn teach-mode ON now?", True)
         elif not _ask_yn(interactive, "Keep teach-mode ON?", True):
-            config.save({"tutorial": False})
-            print(_c("33", "    • teach-mode OFF — only under-specified prompts get coached"))
+            want = False
+        if want is not None:
+            try:
+                config.save({"tutorial": bool(want)})
+                print(_c("32", "    ✓ teach-mode ON (new sessions)") if want
+                      else _c("33", "    • teach-mode OFF — only under-specified prompts get coached"))
+            except Exception:
+                print(_c("33", "    • couldn't save that setting (config not writable)"))
     _pause(interactive)
 
     # 4. Daemon

@@ -64,7 +64,12 @@ theory and pinpointed the image as the true loss.
 **Rules:**
 - Bound every regex run that touches raw prompt text (`[^\s.]{1,40}`, not `\S+`),
   and cap what the lexicon regexes scan (`classify()` truncates > 8000 chars).
-  A submit-time hook must be fast on the silent path.
+  A submit-time hook must be fast on the silent path. **When you fix one ReDoS,
+  grep for its SIBLINGS** — the same `[\w./~-]+\.(tld)` hazard existed in both
+  `_REFERENCE` and `_CONSTRAINT`; fixing only the first left a 14s stall in the
+  second. Fix the whole class (an unbounded `+` over a class containing the
+  separator, followed by that separator), and add a DIRECT-on-the-regex perf
+  test — a through-`classify()` test is tautological (truncation hides it).
 - Only the `_emit_*` helpers may write to stdout, they must write
   all-or-nothing (`json.dumps` then one `write`), and any subprocess in the hook
   path (`pbcopy`) must have stdout/stderr sent to `DEVNULL`. The invariant is

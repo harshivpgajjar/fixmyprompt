@@ -1,4 +1,7 @@
 """Tests for the interactive onboarding tour (`fixmyprompt tour` / `help`)."""
+import builtins
+import contextlib
+import io
 import os
 import subprocess
 import sys
@@ -64,6 +67,48 @@ class TourTest(unittest.TestCase):
         r = run_cli(["boguscmd"], tempfile.mkdtemp())
         self.assertEqual(r.returncode, 1)
         self.assertIn("usage: fixmyprompt", r.stdout)
+
+
+class InteractiveTourTest(unittest.TestCase):
+    """The interactive apply-path (config.save on y/n) — never exercised by the
+    piped CLI tests, so cover it directly with a scripted input() stream."""
+
+    def setUp(self):
+        from fixmyprompt import config, tour
+        self.config, self.tour = config, tour
+        self._dir = tempfile.mkdtemp()
+        self._orig = (config.RUNTIME_DIR, config.CONFIG_PATH, tour._TOURED_MARKER)
+        config.RUNTIME_DIR = Path(self._dir)
+        config.CONFIG_PATH = Path(self._dir) / "config.json"
+        tour._TOURED_MARKER = Path(self._dir) / ".toured"
+
+    def tearDown(self):
+        self.config.RUNTIME_DIR, self.config.CONFIG_PATH, self.tour._TOURED_MARKER = self._orig
+
+    def _run(self, answers):
+        it = iter(answers)
+        orig = builtins.input
+        builtins.input = lambda *a, **k: next(it, "")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.tour.run(cli_path=None, interactive=True)
+        finally:
+            builtins.input = orig
+
+    def test_yes_at_teach_question_enables_teach_mode(self):
+        # 4th input() is the "Turn teach-mode ON now?" question (teach-mode off)
+        self._run(["", "", "", "y", "", "", "", ""])
+        self.assertTrue(self.config.load().get("tutorial"))
+
+    def test_no_when_already_on_disables_teach_mode(self):
+        self.config.save({"tutorial": True})
+        # already-on -> "Keep teach-mode ON?"; answer n -> disabled
+        self._run(["", "", "", "n", "", "", "", ""])
+        self.assertFalse(self.config.load().get("tutorial"))
+
+    def test_interactive_marks_toured(self):
+        self._run(["", "", "", "y", "", "", "", ""])
+        self.assertTrue(self.tour.has_toured())
 
 
 if __name__ == "__main__":

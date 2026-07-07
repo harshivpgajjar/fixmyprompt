@@ -237,7 +237,10 @@ _CONSTRAINT = re.compile(
     r"\b\d+(?:\.\d+)?(?:px|pt|em|rem|%|ms|s|sec|seconds?|minutes?|kb|mb)\b|"
     r"#[0-9a-fA-F]{3,8}\b|"
     r"\bmat (?:karo|kar|karna)\b|\bnahi chahiye\b|"
-    r"\b[\w./~-]+\.(?:py|ts|tsx|js|jsx|css|html|json|md|kt|swift|go|rs|java|rb|php|sql|ya?ml|sh|txt|csv)\b"
+    # NB: the pre-dot run excludes '.' and is bounded ([\w/~-]{1,60}, not
+    # [\w./~-]+) so a long dotted chain / JWT / token can't cause O(n²)
+    # backtracking and stall the submit hook (same hazard fixed in _REFERENCE).
+    r"\b[\w/~-]{1,60}\.(?:py|ts|tsx|js|jsx|css|html|json|md|kt|swift|go|rs|java|rb|php|sql|ya?ml|sh|txt|csv)\b"
     r")",
     re.IGNORECASE,
 )

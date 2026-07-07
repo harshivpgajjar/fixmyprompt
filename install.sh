@@ -64,10 +64,21 @@ python3 - "$SETTINGS" "$DEST/bin/coach_gate.py" <<'PY'
 import json, sys, os
 settings_path, hook_cmd = sys.argv[1], sys.argv[2]
 cmd = f'python3 "{hook_cmd}"'
-try:
-    with open(settings_path) as f: s = json.load(f)
-except Exception:
+if os.path.exists(settings_path):
+    try:
+        with open(settings_path) as f: s = json.load(f)
+    except Exception:
+        # Never overwrite a settings.json we couldn't parse — that would discard
+        # the user's (recoverable) settings. Abort and let them fix it.
+        sys.stderr.write(
+            f"  ✗ {settings_path} exists but is not valid JSON — refusing to overwrite it.\n"
+            f"    Fix or move it, then re-run ./install.sh (or add the hook manually — see README).\n")
+        sys.exit(1)
+else:
     s = {}
+if not isinstance(s, dict):
+    sys.stderr.write(f"  ✗ {settings_path} is not a JSON object — refusing to overwrite it.\n")
+    sys.exit(1)
 hooks = s.setdefault("hooks", {})
 ups = hooks.setdefault("UserPromptSubmit", [])
 # already installed?

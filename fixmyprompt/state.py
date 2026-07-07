@@ -34,11 +34,14 @@ def _ensure() -> None:
     COOLDOWN_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def set_pending(session_id: str, refined_text: str) -> None:
-    """Arm the one-shot bypass for the next submission in this session."""
+def set_pending(session_id: str, refined_text: str, original_text: str = "") -> None:
+    """Arm the one-shot bypass for the next submission in this session. Stores the
+    refined text (for a `y` accept) AND the user's original (so they can send it
+    unchanged with `n`, rejecting the rewrite)."""
     _ensure()
     path = PENDING_DIR / f"{_safe(session_id)}.json"
-    path.write_text(json.dumps({"ts": time.time(), "refined": refined_text}))
+    path.write_text(json.dumps({"ts": time.time(), "refined": refined_text,
+                                "original": original_text}))
     # also seed the backstop cache for a late paste that misses the one-shot
     try:
         BACKSTOP_PATH.write_text(json.dumps({"ts": time.time(), "refined": refined_text}))

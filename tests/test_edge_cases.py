@@ -264,12 +264,19 @@ class ResendStagingTest(unittest.TestCase):
             cg.subprocess.run = orig_run
         self.assertEqual(calls, [])
 
-    def test_all_no_rewrite_banners_promise_the_clipboard(self):
-        # affirm, tip, AND scaffold must all point the user at the clipboard when
-        # staged — scaffold was the gap that left "press Enter" doing nothing.
+    def test_all_no_rewrite_banners_offer_send_original(self):
+        # affirm, tip, AND scaffold must all offer `[n ⏎]` to send the original —
+        # never a bare "press Enter" that does nothing (the box is cleared).
         cg = _load_gate_module()
         for kind in ("affirm", "tip", "scaffold"):
-            self.assertIn("clipboard", cg._banner("body", "", kind=kind, staged=True).lower(), kind)
+            for staged in (True, False):
+                self.assertIn("[n ", cg._banner("body", "", kind=kind, staged=staged).lower(), (kind, staged))
+
+    def test_refined_banner_offers_send_refined_and_original(self):
+        cg = _load_gate_module()
+        b = cg._banner("REWRITE", "", kind="refined", staged=True).lower()
+        self.assertIn("[y ", b)   # send refined
+        self.assertIn("[n ", b)   # send yours unchanged
 
     def test_paste_key_is_platform_appropriate(self):
         cg = _load_gate_module()
@@ -355,7 +362,7 @@ class ScaffoldStagingTest(unittest.TestCase):
         self.assertTrue(out)
         reason = json.loads(out)["reason"].lower()
         self.assertIn("make this sharper", reason)                 # it IS a scaffold
-        self.assertTrue("clipboard" in reason or "retype" in reason, reason)
+        self.assertIn("[n ", reason)                               # a real send affordance
         self.assertNotIn("then press ⏎ to send", reason)           # never the dead instruction
 
 

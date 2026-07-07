@@ -305,8 +305,6 @@ class CoachGateTest(unittest.TestCase):
         edits = [
             "actually fix only the session cookie expiry in auth.py and add a test",
             REFINED,  # the cmd-V paste flow: pasted refined text sends as-is
-            "no",  # a decline is not a confirm
-            "n",
             "",  # empty resubmission
             "yes please do the whole thing",  # confirm-ish but not bare
         ]
@@ -316,6 +314,20 @@ class CoachGateTest(unittest.TestCase):
                 self.assertBlock(self.run_gate(ROUGH, home=home))
                 out = self.run_gate(edit, home=home)
                 self.assertPassThrough(out)
+                self.assertEqual(self.actions(home), ["coach", "edit"])
+
+    def test_block_then_n_sends_the_original(self):
+        # a bare "n"/"no"/"original"/... rejects the rewrite and sends the user's
+        # ORIGINAL prompt untouched (via additionalContext), never a re-block.
+        for word in ("n", "no", "original", "mine", "as-is"):
+            with self.subTest(word=word):
+                home = self.fresh_home()
+                self.assertBlock(self.run_gate(ROUGH, home=home))
+                out = self.run_gate(word, home=home)
+                self.assertIsNotNone(out)
+                ctx = out["hookSpecificOutput"]["additionalContext"]
+                self.assertIn(ROUGH, ctx)          # the ORIGINAL prompt
+                self.assertIn("original", ctx.lower())
                 self.assertEqual(self.actions(home), ["coach", "edit"])
 
     # =================================================================

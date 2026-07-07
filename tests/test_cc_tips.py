@@ -164,13 +164,11 @@ class CcTipGateTest(unittest.TestCase):
         self.assertIn("/clear", data["reason"])
         self.assertIn("tip", data["reason"].lower())
         # Regression: Claude Code clears the input box on block, so this banner
-        # must offer a REAL send-as-is affordance, never a bare "press Enter to
-        # send" it can't deliver. When a clipboard tool exists the prompt is
-        # staged there ("clipboard"); when none is available (e.g. this test's
-        # empty PATH, or headless Linux) it must honestly say to retype — but
-        # never falsely promise a plain Enter.
+        # must offer a REAL send affordance, never a bare "press Enter" it can't
+        # deliver. `[n ⏎]` always sends the original (via the on-disk one-shot
+        # flag, independent of the clipboard).
         reason = data["reason"].lower()
-        self.assertTrue("clipboard" in reason or "retype" in reason, reason)
+        self.assertIn("[n ", reason)
 
     def test_tip_only_is_loop_proof(self):
         home = tempfile.mkdtemp()

@@ -54,6 +54,10 @@ from fixmyprompt import (  # noqa: E402
 )
 
 _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it", "ship it", "go"}
+# Reject the rewrite and send the ORIGINAL prompt untouched.
+_CONFIRM_ORIGINAL = {"n", "no", "nope", "o", "orig", "og", "original", "mine",
+                     "keep mine", "keep original", "send mine", "send original",
+                     "as is", "as-is", "unchanged", "own", "send my own"}
 
 # An attached/pasted image shows up as a bracketed marker in the prompt text.
 # The exact wire format isn't documented, so match generously — a bracketed run
@@ -132,17 +136,18 @@ def _emit_block(reason: str) -> None:
     _emit_json({"decision": "block", "reason": reason})
 
 
-def _emit_accept(refined: str) -> None:
-    _emit_json({
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": (
-                "The user reviewed and approved this refined version of the "
-                "prompt they just tried to send. Treat THIS as their actual "
-                "request and act on it directly:\n\n" + refined
-            ),
-        }
-    })
+def _emit_accept(text: str, is_original: bool = False) -> None:
+    note = (
+        "The user declined the suggested rewrite and chose to send their ORIGINAL "
+        "prompt unchanged. Treat THIS as their actual request and act on it "
+        "directly:\n\n"
+        if is_original else
+        "The user reviewed and approved this refined version of the prompt they "
+        "just tried to send. Treat THIS as their actual request and act on it "
+        "directly:\n\n"
+    ) + text
+    _emit_json({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                       "additionalContext": note}})
 
 
 def _emit_whisper(context: str) -> None:
@@ -300,25 +305,26 @@ def _banner(body: str, tip: str, kind: str = "refined", staged: bool = True) -> 
     (rare — e.g. headless Linux with no clipboard tool) we don't promise a paste
     the user can't perform."""
     rule = "─" * 52
+    # `[n ⏎] send your original` always works — it sends the stored original via
+    # the one-shot flag, independent of the clipboard. `staged` only decides
+    # whether we also offer the clipboard-paste (to edit) affordance.
+    paste = f"   ·   [{_PASTE}] paste to edit" if staged else ""
     if kind == "refined":
-        if staged:
-            header = "── FixMyPrompt · refined prompt (copied to clipboard) ──"
-            footer = f"[y ⏎] send refined   ·   [{_PASTE}, edit, ⏎] tweak   ·   [type anything] send your own"
-        else:
-            header = "── FixMyPrompt · refined prompt ──"
-            footer = "[y ⏎] send refined   ·   [type anything] send your own"
+        header = ("── FixMyPrompt · refined prompt (copied to clipboard) ──"
+                  if staged else "── FixMyPrompt · refined prompt ──")
+        tweak = f"   ·   [{_PASTE}] paste refined to tweak" if staged else ""
+        footer = f"[y ⏎] send refined   ·   [n ⏎] send yours unchanged{tweak}"
     elif kind == "affirm":
         header = "── FixMyPrompt · looks good ✓ ──"
-        footer = (f"[{_PASTE}, ⏎] your prompt is on the clipboard — paste and send it as-is"
-                  if staged else "your prompt is well-formed — send it (retype to resend)")
+        footer = f"[n ⏎] send your prompt as-is{paste}"
     elif kind == "tip":
         header = "── FixMyPrompt · tip ──"
-        footer = (f"[{_PASTE}, ⏎] your prompt is on the clipboard — paste and send it"
-                  if staged else "send your prompt (retype to resend)")
+        footer = f"[n ⏎] send your prompt{paste}"
     else:  # scaffold
         header = "── FixMyPrompt · make this sharper ──"
-        footer = (f"[{_PASTE}, ⏎] your prompt is on the clipboard — paste it, add the missing piece above, and send"
-                  if staged else "add the missing piece above, then send your prompt (retype to resend)")
+        add = (f"   ·   [{_PASTE}] paste to add the missing piece above"
+               if staged else "   ·   add the missing piece above and resend")
+        footer = f"[n ⏎] send unchanged{add}"
     out = [header, "", body.strip()]
     if tip.strip():
         out += ["", f"why: {tip.strip()}"]
@@ -438,7 +444,9 @@ def main() -> None:
         if pending is not None:
             refined = pending.get("refined") if isinstance(pending, dict) else None
             refined = refined if isinstance(refined, str) else ""
-            norm = prompt.strip().lower().rstrip(".! ")
+            original = pending.get("original") if isinstance(pending, dict) else None
+            original = original if isinstance(original, str) else ""
+            norm = prompt.strip().lower().rstrip(".!? ")
             if norm in _CONFIRM and refined.strip():
                 scorelog.log(prompt, scorer.classify(prompt), ACTION_ACCEPT, cfg)
                 try:  # feed accepted refinements into the criteria memory
@@ -447,6 +455,10 @@ def main() -> None:
                 except Exception:
                     pass
                 _emit_accept(refined)
+            if norm in _CONFIRM_ORIGINAL and original.strip():
+                # user rejected the rewrite — send their ORIGINAL prompt untouched.
+                scorelog.log(prompt, scorer.classify(prompt), ACTION_EDIT, cfg)
+                _emit_accept(original, is_original=True)
             # Anything else — edited text, an override, a decline, even a bare
             # confirm when there is no refined text to send — passes through.
             scorelog.log(prompt, scorer.classify(prompt), ACTION_EDIT, cfg)
@@ -523,7 +535,7 @@ def main() -> None:
         # Show just the tip (no refiner call, no fabricated scaffold). Arm the
         # one-shot bypass first so it stays loop-proof.
         if tip_only:
-            state.set_pending(session_id, "")
+            state.set_pending(session_id, "", prompt)
             state.mark_coached(session_id)
             staged = _stage_for_resend(prompt, cfg)
             scorelog.log(prompt, features, ACTION_COACH, cfg)
@@ -607,7 +619,7 @@ def main() -> None:
         # 6. PRESENT. Arm the one-shot bypass BEFORE emitting the block so the
         # gate can never block twice in a row. Arming with "" (scaffold/affirm)
         # means a bare `y` won't auto-send — it just passes through.
-        state.set_pending(session_id, refined_sendable or "")
+        state.set_pending(session_id, refined_sendable or "", prompt)
         state.mark_coached(session_id)
         staged = True
         if refined_sendable:

@@ -33,6 +33,28 @@ exact command/keystroke, and fills placeholders from the user's own words where
 possible (e.g. `/goal all tests pass`, derived from "keep going until all tests
 pass"). Explanation earns attention; the execution path earns the action.
 
+## Never BLOCK a submission that carries an attachment (image)
+
+**What happened:** Users reported the coach's suggestion reappearing "despite no
+prompt change," that pressing Enter to "send as-is" did nothing, and — the tell —
+that an **attached image disappeared** on resubmit. The real log showed *zero*
+`coach → coach` re-blocks and byte-identical `coach`/`edit` previews, i.e. the
+one-shot bypass worked and the text was retained. The only thing actually lost
+was the **image**: a `decision:block` discards the whole submission, and a hook
+has no channel to re-inject a pasted image, so the user had to re-attach it.
+
+**Rule:** A UserPromptSubmit hook must **never block a submission that carries an
+image/attachment** — detect it (attachment fields or an `[Image …]` marker) and
+coach *non-blockingly* via `additionalContext` instead, so the prompt and its
+image proceed intact. More broadly: blocking is only safe for content the hook
+can fully reconstruct on resubmit (plain text); anything it can't (attachments)
+must pass through. When docs don't specify the wire format, detect defensively
+and err toward NOT blocking (a false positive just means non-blocking coaching).
+
+**Also:** trust the user's direct product experience and the real logs over a
+doc-scraping agent's confident verdict — the logs disproved the "re-block loop"
+theory and pinpointed the image as the true loss.
+
 ## The submit hook's stdout is a protocol — guard it and its regexes
 
 **What happened:** Adversarial review found the classifier's `_REFERENCE` regex

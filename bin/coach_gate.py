@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -53,6 +54,27 @@ from fixmyprompt import (  # noqa: E402
 )
 
 _CONFIRM = {"y", "ye", "yes", "yep", "yeah", "ok", "okay", "k", "send", "send it", "ship it", "go"}
+
+# An attached/pasted image shows up as a bracketed marker in the prompt text.
+# The exact wire format isn't documented, so match the common shapes.
+_IMAGE_MARKER = re.compile(r"\[(?:image|pasted image|screenshot)\b[^\]]{0,24}\]", re.IGNORECASE)
+
+
+def _has_attachment(data: dict, prompt: str) -> bool:
+    """True if the submission carries an image/file attachment.
+
+    Blocking a submission discards it, and a hook has no channel to re-inject a
+    pasted image — so a blocked image-bearing prompt loses its image on resubmit.
+    We must therefore never BLOCK these (we whisper or pass instead). The wire
+    format for attachments isn't documented, so detect defensively: any
+    attachment-shaped field in the hook payload, OR an image marker in the text.
+    A false positive only means we coach non-blockingly instead of blocking —
+    harmless — so we err toward detecting."""
+    for key in ("images", "image", "attachments", "attachment", "files",
+                "image_paths", "media"):
+        if data.get(key):
+            return True
+    return bool(_IMAGE_MARKER.search(prompt or ""))
 
 
 def _daemon_up() -> bool:
@@ -244,6 +266,18 @@ def main() -> None:
         prompt = data.get("prompt")
         if not isinstance(prompt, str):
             prompt = ""
+        has_attachment = _has_attachment(data, prompt)
+        # Opt-in diagnostic (off by default): record the stdin keys + whether an
+        # image was detected, so the exact attachment wire format can be
+        # confirmed from a real run without exposing prompt/image contents.
+        if os.environ.get("FIXMYPROMPT_DEBUG_STDIN"):
+            try:
+                config.RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+                (config.RUNTIME_DIR / "stdin-keys.log").open("a").write(
+                    json.dumps({"keys": sorted(map(str, data.keys())),
+                                "image_detected": has_attachment}) + "\n")
+            except Exception:
+                pass
         session_id = data.get("session_id")
         if not isinstance(session_id, str) or not session_id:
             session_id = "nosession"
@@ -314,11 +348,12 @@ def main() -> None:
         suggestion = (scorer.suggest_model_effort(features, body)
                       if cfg.get("suggest_model") and not tip_only else None)
 
-        # 4b. WHISPER MODE — fully subscription, no key, no extra model call.
-        # Don't block: inject a coaching note so the MAIN session model (already
-        # running on the user's subscription) asks for the missing piece and
-        # teaches the pattern. Zero added latency; nothing to time out.
-        if mode == "whisper":
+        # 4b. WHISPER (non-blocking) — inject a coaching note instead of blocking
+        # so the MAIN session model (subscription, no key, no extra call) asks for
+        # the missing piece. Used for whisper mode AND — crucially — for any
+        # submission carrying an image: blocking would discard the attachment
+        # (the user would have to re-attach it), so we NEVER block those.
+        if mode == "whisper" or has_attachment:
             if tip_only:
                 ctx = ("[FixMyPrompt coach] Relay this Claude Code tip to the user "
                        "in one short line, then proceed with their request: " + cc_tip)

@@ -33,13 +33,14 @@ if [ ! -f "$DEST/config.json" ]; then
   cat > "$DEST/config.json" <<'JSON'
 {
   "mode": "off",
+  "tutorial": true,
   "inject": true,
   "min_words": 4,
   "cooldown_sec": 90,
   "model": "claude-haiku-4-5"
 }
 JSON
-  echo "  ✓ default config written (mode=off — opt in with: fixmyprompt on)"
+  echo "  ✓ default config written (mode=off, teach-mode on — opt in with: fixmyprompt on)"
 else
   echo "  • existing config kept"
 fi

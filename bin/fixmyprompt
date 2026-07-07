@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fixmyprompt import cc_tips, config, context_hints, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
+from fixmyprompt import cc_tips, config, context_hints, daemon, outcome, refiner, report, scorer, suggest, tour  # noqa: E402
 
 _LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.daemon.plist"
 
@@ -63,6 +63,23 @@ def cmd_features(args):
     token/time trade-off for each. Optionally filter by category."""
     category = " ".join(args) if args else None
     print(cc_tips.catalog(category))
+
+
+def _cli_path() -> str:
+    return str(Path(__file__).resolve())
+
+
+def cmd_tour(_args):
+    """Interactive onboarding walkthrough."""
+    tour.run(cli_path=_cli_path())
+
+
+def cmd_help(args):
+    """Re-invoke the onboarding tour (or list commands with --commands)."""
+    if args and args[0] in ("--commands", "-c", "commands", "list"):
+        _print_usage()
+        return
+    tour.run(cli_path=_cli_path())
 
 
 _DIGEST_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.digest.plist"
@@ -439,6 +456,8 @@ COMMANDS = {
     "suggest": cmd_suggest,
     "tips": cmd_tips,
     "features": cmd_features,
+    "tour": cmd_tour,
+    "help": cmd_help,
     "tutorial": cmd_tutorial,
     "project": cmd_project,
     "digest": cmd_digest,
@@ -452,12 +471,47 @@ COMMANDS = {
 }
 
 
+def _print_usage():
+    print("usage: fixmyprompt <command> [args]\n")
+    rows = [
+        ("tour", "interactive onboarding walkthrough"),
+        ("help", "re-run the tour  (help --commands for this list)"),
+        ("features [category]", "browse Claude Code efficiency features"),
+        ("tips \"...\"", "the one feature a prompt should reach for"),
+        ("suggest \"...\"", "best-suited model + effort for a prompt"),
+        ("try \"...\"", "preview what the live coach would do (safe, no changes)"),
+        ("refine \"...\"", "refine a rough prompt right now"),
+        ("on | off", "enable / disable live coaching"),
+        ("mode <always|whisper|sigil|off>", "how the coach engages"),
+        ("tutorial <on|off>", "teach-mode: coach every prompt (affirm good ones)"),
+        ("daemon <on|off|status>", "fast subscription rewrites (no API key)"),
+        ("status", "show current config"),
+        ("progress | report", "weekly prompting trend + outcomes"),
+        ("project <list|add|remove>", "per-project clarifying hints"),
+        ("selftest", "offline classifier smoke test"),
+    ]
+    for name, desc in rows:
+        print(f"  {name:<34} {desc}")
+
+
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        print("usage: fixmyprompt <try|suggest|features|tips|progress|report|tutorial|"
-              "mode|daemon|status|on|off|refine|selftest>")
+    argv = sys.argv[1:]
+    # First-ever run with no command: launch the onboarding tour (if interactive).
+    if not argv:
+        if not tour.has_toured() and sys.stdout.isatty():
+            tour.run(cli_path=_cli_path())
+        else:
+            _print_usage()
+        return
+    if argv[0] not in COMMANDS:
+        _print_usage()
         sys.exit(1)
-    COMMANDS[sys.argv[1]](sys.argv[2:])
+    # Gentle one-time nudge to the tour (stderr, so it never pollutes stdout).
+    if argv[0] not in ("tour", "help"):
+        hint = tour.first_run_hint()
+        if hint:
+            print(hint, file=sys.stderr)
+    COMMANDS[argv[0]](argv[1:])
 
 
 if __name__ == "__main__":

@@ -162,6 +162,8 @@ Aliases: `haiku` (fastest/cheapest) · `sonnet` (default, most coding) · `opus`
 ## Usage
 
 ```bash
+fixmyprompt tour            # interactive onboarding walkthrough (runs automatically on first use)
+fixmyprompt help            # re-run the tour  (help --commands lists every command)
 fixmyprompt status          # show current config
 fixmyprompt try "..."       # SAFE simulator — preview what the live gate would do, changes nothing
 fixmyprompt on              # enable live coaching (mode=always)
@@ -183,11 +185,13 @@ fixmyprompt digest          # send your progress report to Telegram (if configur
 fixmyprompt selftest        # offline classifier smoke test
 ```
 
-Start here: run `fixmyprompt try "fix the login page"` to see the coach's judgment with zero risk, then `fixmyprompt on` when you're ready to feel it live.
+Start here: run `fixmyprompt tour` for a 60-second walkthrough, or `fixmyprompt try "fix the login page"` to see the coach's judgment with zero risk, then `fixmyprompt on` when you're ready to feel it live.
 
 ### Extra features
 
-- **Tutorial mode** (`fixmyprompt tutorial on`): coaches *every* real prompt regardless of size/vagueness. Well-formed prompts get an **affirmation** ("Well-specified ✓ — done-state, constraints. Keep doing this") so you learn what good looks like, not just what's broken. Continuations/commands/pastes always stay silent.
+- **Interactive onboarding** (`fixmyprompt tour`, re-run via `fixmyprompt help`): a short guided walkthrough of the coach flow, the feature catalog, teach-mode, the daemon, and token-usage warnings. It runs automatically the first time you use FixMyPrompt.
+- **Images are never intercepted**: a submission that carries a screenshot/image is *never* blocked — it always passes straight through (coaching, if any, rides along as a non-blocking note). Blocking a submission would discard the attachment, so FixMyPrompt refuses to risk your image. You never have to re-attach.
+- **Tutorial (teach-mode)** (`fixmyprompt tutorial on`, on by default after install): coaches *every* real prompt regardless of size/vagueness. Well-formed prompts get an **affirmation** ("Well-specified ✓ — done-state, constraints. Keep doing this") so you learn what good looks like, not just what's broken. Continuations/commands/pastes always stay silent.
 - **Model + effort suggestion**: every coaching output recommends the best-suited model + effort tier — mechanical edits → a small/cheap model, design/iteration → a mid-tier model, hard/architectural work → your top subscription model (with an optional note for stronger models you may have separate access to).
 - **Claude Code feature catalog** (`fixmyprompt features`): a browsable, grouped reference of the *built-in Claude Code features* that make you efficient — context (`/clear`, `/compact`, `/context`), reasoning (`ultrathink`, `/effort`, plan mode), model routing (`/model`), delegation (`ultracode`, `subagents`, `/goal`, `/loop`, parallel agents), input (`@file`, vision/screenshots), output (`artifacts`), recovery (`/rewind`), memory (`CLAUDE.md`, `/memory`), sessions (`--resume`, `/branch`, `/export`), and diagnostics (`/usage`, `/permissions`). Each entry says **when to use it** and its **token/time trade-off**, so hidden features are discoverable and you pick the right tool for the task. Filter by category with `fixmyprompt features <category>`.
 - **Situational feature tips with an execution path**: the coach surfaces the single most relevant feature exactly when a prompt calls for it — and gives you the **exact thing to run**, not just "you could use X." Starting new work → `→ run /clear first`; a task with a finish line → the ready-to-paste `→ /goal all tests pass` (condition filled from your own words); broad multi-file work → `→ add "Use subagents…" to your prompt`; a hard/architectural task → `→ add the word ultrathink to your prompt`. Preview any prompt's tip with `fixmyprompt tips "..."`.

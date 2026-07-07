@@ -18,6 +18,7 @@ FEATURES schema returned by scorer.classify():
     word_count        : int
     is_command        : bool   # starts with / ! #
     is_continuation   : bool   # yes/ok/go/continue/do it/... — never coach
+    is_conversational : bool   # a question / mid-dialogue reply — never coach
     looks_like_paste  : bool   # code block or pasted log/stacktrace
     is_design         : bool   # a visual/design ask
     mode              : str     # "explore" | "execute" | "other"
@@ -35,6 +36,7 @@ FEATURE_KEYS = (
     "word_count",
     "is_command",
     "is_continuation",
+    "is_conversational",
     "looks_like_paste",
     "is_design",
     "mode",

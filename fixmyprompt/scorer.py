@@ -157,6 +157,16 @@ _QUESTION = re.compile(
     re.IGNORECASE,
 )
 
+# A reply/aside in an ongoing dialogue — starts with a conversational connector.
+# These are things the user says TO the assistant mid-conversation ("So …?",
+# "No, do X instead", "Actually, …"), NOT task prompts. Coaching them is noise,
+# and worse, the refiner rewrites the user's actual meaning.
+_CONV_OPENER = re.compile(
+    r"^(?:so|no|nope|nah|yes|yeah|yep|yup|ok|okay|but|and|also|actually|wait|"
+    r"hmm+|oh|well|right|hey|umm?|hold on|one more|by the way|btw)\b[,\s]",
+    re.IGNORECASE,
+)
+
 # Task verbs (English + the user's Hinglish), plus "X needs work" phrasings,
 # which are fix-requests without an imperative verb.
 _EXECUTE = re.compile(
@@ -360,6 +370,14 @@ def classify(prompt: str) -> dict:
     else:
         mode = "other"
 
+    # --- conversational: a question or a mid-dialogue reply, not a task prompt.
+    # A question phrased as a task ("can you build X?") stays a task (mode
+    # execute); a bare question ("so all of it is mac-only?") does not.
+    is_conversational = (
+        bool(_CONV_OPENER.match(stripped))
+        or (stripped.endswith("?") and mode != "execute")
+    )
+
     # --- gaps (execute mode only — coaching targets, human-readable)
     gaps: list[str] = []
     if mode == "execute":
@@ -378,6 +396,7 @@ def classify(prompt: str) -> dict:
         "word_count": wc,
         "is_command": is_command,
         "is_continuation": is_continuation,
+        "is_conversational": is_conversational,
         "looks_like_paste": looks_paste,
         "is_design": is_design,
         "mode": mode,
@@ -433,13 +452,16 @@ def should_coach(features: dict, cfg: dict) -> bool:
         return False
     if features.get("is_continuation"):
         return False
+    if features.get("is_conversational"):
+        return False  # a question / mid-dialogue reply — not a prompt to refine
     if features.get("looks_like_paste"):
         return False
-    # Tutorial mode: coach EVERY real prompt regardless of length, mode, or
-    # quality — the well-formed ones get an affirmation so the user learns what
-    # "good" looks like, not just what's broken.
+    # Tutorial mode: coach every real WORK prompt (build/fix + exploration) so the
+    # user learns what "good" looks like — well-formed ones get an affirmation. It
+    # must NOT coach non-tasks (opinions, statements, mode 'other'); those aren't
+    # prompting targets and the refiner would only distort them.
     if cfg.get("tutorial"):
-        return True
+        return features.get("mode") in ("execute", "explore")
     if (features.get("word_count") or 0) < cfg.get("min_words", 4):
         return False
     # never coach intentional exploration or non-tasks

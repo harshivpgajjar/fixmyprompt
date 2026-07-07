@@ -57,5 +57,9 @@ def affirm(features: dict) -> str:
 
 
 def model_line(sug: dict) -> str:
-    """One-line model/effort suggestion for the coaching banner."""
-    return f"→ suggested: {sug['model']} · {sug['effort']}  ({sug['why']})"
+    """One-line model/effort suggestion for the coaching banner (+ optional
+    upgrade note on a second line)."""
+    line = f"→ suggested: {sug['model']} · {sug['effort']}  ({sug['why']})"
+    if sug.get("note"):
+        line += f"\n   ↑ {sug['note']}"
+    return line

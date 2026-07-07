@@ -43,6 +43,7 @@ from fixmyprompt import (  # noqa: E402
     ACTION_COACH,
     ACTION_EDIT,
     ACTION_PASS,
+    cc_tips,
     config,
     refiner,
     scorelog,
@@ -187,6 +188,9 @@ def _banner(body: str, tip: str, kind: str = "refined") -> str:
     elif kind == "affirm":
         header = "── FixMyPrompt · looks good ✓ ──"
         footer = "press ⏎ to send your prompt as-is"
+    elif kind == "tip":
+        header = "── FixMyPrompt · tip ──"
+        footer = "press ⏎ to send your prompt"
     else:  # scaffold
         header = "── FixMyPrompt · make this sharper ──"
         footer = "fill the <…> (or add the missing piece), then press ⏎ to send"
@@ -291,36 +295,56 @@ def main() -> None:
                 _emit_passthrough()
 
         features = scorer.classify(body)
+        cc = cc_tips.analyze(body, features) if cfg.get("cc_tips") else None
+        cc_tip = cc["tip"] if cc else None
+        would_coach = scorer.should_coach(features, cfg)
+        # A high-value Claude Code tip (new-work/context-switch, big-goal) is
+        # worth surfacing even on an already well-formed prompt; lower-value tips
+        # (plan mode, subagents) only ride along when the gate already coaches.
+        engage_for_tip = bool(cc and cc["engage"])
 
         # 4. GATE (local, zero-latency) + cooldown.
-        if not scorer.should_coach(features, cfg) or state.cooldown_active(session_id, cfg):
+        if state.cooldown_active(session_id, cfg) or (not would_coach and not engage_for_tip):
             scorelog.log(prompt, features, ACTION_PASS, cfg)
             _emit_passthrough()
 
+        tip_only = not would_coach  # engaging solely to deliver the Claude Code tip
         tutorial = bool(cfg.get("tutorial"))
         suggestion = (scorer.suggest_model_effort(features, body)
-                      if cfg.get("suggest_model") else None)
+                      if cfg.get("suggest_model") and not tip_only else None)
 
         # 4b. WHISPER MODE — fully subscription, no key, no extra model call.
         # Don't block: inject a coaching note so the MAIN session model (already
         # running on the user's subscription) asks for the missing piece and
         # teaches the pattern. Zero added latency; nothing to time out.
         if mode == "whisper":
-            # Only whisper when there's genuinely a missing piece to ask about.
-            # In tutorial mode should_coach passes well-formed and explore prompts
-            # too — whispering "it's under-specified" at those inverts the
-            # contract, so pass them through silently.
-            if not features.get("gaps"):
+            if tip_only:
+                ctx = ("[FixMyPrompt coach] Relay this Claude Code tip to the user "
+                       "in one short line, then proceed with their request: " + cc_tip)
+            elif features.get("gaps"):
+                ctx = _whisper_context(features)
+                if suggestion:
+                    ctx += (f"\n\nAlso tell the user in one short line: this task is best "
+                            f"suited to {suggestion['model']} at {suggestion['effort']} effort "
+                            f"({suggestion['why']}).")
+                if cc_tip:
+                    ctx += "\n\nAlso relay this Claude Code tip in one line: " + cc_tip
+            else:
+                # would_coach (tutorial) but well-formed and no tip -> stay silent.
                 scorelog.log(prompt, features, ACTION_PASS, cfg)
                 _emit_passthrough()
             state.mark_coached(session_id)  # respect the cooldown between nudges
             scorelog.log(prompt, features, ACTION_COACH, cfg)
-            ctx = _whisper_context(features)
-            if suggestion:
-                ctx += (f"\n\nAlso tell the user in one short line: this task is best "
-                        f"suited to {suggestion['model']} at {suggestion['effort']} effort "
-                        f"({suggestion['why']}).")
             _emit_whisper(ctx)
+
+        # 4c. TIP-ONLY BLOCK — a well-formed prompt with a high-value CC tip.
+        # Show just the tip (no refiner call, no fabricated scaffold). Arm the
+        # one-shot bypass first so it stays loop-proof.
+        if tip_only:
+            state.set_pending(session_id, "")
+            state.mark_coached(session_id)
+            scorelog.log(prompt, features, ACTION_COACH, cfg)
+            _emit_block(_banner(cc_tip, "", kind="tip"))
 
         # 5. REFINE — pick the path by whether a fast LLM is configured.
         #    LLM mode (ANTHROPIC_API_KEY set, or the test seam active): get an
@@ -391,9 +415,11 @@ def main() -> None:
                 scorelog.log(prompt, features, ACTION_PASS, cfg)
                 _emit_passthrough()
 
-        # Append the best-suited model + effort suggestion to the banner.
+        # Append the model + effort suggestion and a relevant Claude Code tip.
         if suggestion:
             banner_body = banner_body + "\n\n" + suggest.model_line(suggestion)
+        if cc_tip:
+            banner_body = banner_body + "\n\n" + cc_tip
 
         # 6. PRESENT. Arm the one-shot bypass BEFORE emitting the block so the
         # gate can never block twice in a row. Arming with "" (scaffold/affirm)

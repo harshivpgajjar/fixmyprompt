@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fixmyprompt import config, context_hints, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
+from fixmyprompt import cc_tips, config, context_hints, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
 
 _LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.daemon.plist"
 
@@ -36,6 +36,22 @@ def cmd_suggest(args):
     print(f"mode: {feats['mode']}")
     print(f"→ {s['model']} · {s['effort']} effort")
     print(f"  {s['why']}")
+    if s.get("note"):
+        print(f"  ↑ {s['note']}")
+    cc = cc_tips.analyze(prompt, feats)
+    if cc:
+        print(f"\n{cc['tip']}")
+
+
+def cmd_tips(args):
+    """Show the Claude Code feature tip a prompt would trigger (if any)."""
+    if not args:
+        print('usage: fixmyprompt tips "your prompt"')
+        print("Surfaces a relevant Claude Code feature (/clear, /goal, plan mode, subagents)")
+        return
+    prompt = " ".join(args)
+    cc = cc_tips.analyze(prompt, scorer.classify(prompt))
+    print(cc["tip"] if cc else "No Claude Code feature tip for this prompt.")
 
 
 _DIGEST_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.digest.plist"
@@ -410,6 +426,7 @@ COMMANDS = {
     "report": cmd_report,
     "progress": cmd_progress,
     "suggest": cmd_suggest,
+    "tips": cmd_tips,
     "tutorial": cmd_tutorial,
     "project": cmd_project,
     "digest": cmd_digest,

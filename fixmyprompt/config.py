@@ -57,6 +57,9 @@ DEFAULTS = {
     "tutorial": False,
     # append a best-suited model + effort suggestion to the coaching output.
     "suggest_model": True,
+    # surface a relevant Claude Code feature tip (/clear before new work, /goal
+    # for big tasks, plan mode, subagents) when the prompt signals the situation.
+    "cc_tips": True,
     # write full (redacted) prompt previews to the log for the weekly report.
     "log_previews": True,
 }

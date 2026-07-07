@@ -438,14 +438,24 @@ def should_coach(features: dict, cfg: dict) -> bool:
 
 
 # --------------------------------------------------------------------------
-# Model + effort suggestion — routes the prompt to the best-suited model/effort
-# using the user's own routing rules (Fable for hard/ambiguous, Sonnet for
-# everyday feature/design iteration, Haiku for mechanical edits).
+# Model + effort suggestion — routes the prompt to the best-suited model/effort.
+# Primary recommendations are models INCLUDED in the standard Claude subscription
+# (Opus 4.8 for hard work, Sonnet 5 for features/design, Haiku 4.5 for
+# mechanical). The very hardest tasks add an optional upgrade note for Fable 5,
+# which is stronger still but requires separate Mythos access (NOT in the
+# standard subscription) — so nobody is steered toward a model they can't run.
 # --------------------------------------------------------------------------
 
+# strongest subscription-included model, for the hardest work
+_HARD_MODEL = "Opus 4.8"
+# optional upgrade for the hardest tasks — not in the standard subscription
+_FABLE_NOTE = "Fable 5 is stronger still if you have Mythos access (not in the standard subscription)"
+
+
 def suggest_model_effort(features: dict, prompt: str) -> dict:
-    """Return {"model", "effort", "why"} — the best-suited model + effort for
-    this prompt. Pure, deterministic, instant (no LLM)."""
+    """Return {"model", "effort", "why", "note"} — the best-suited model + effort
+    for this prompt. `model` is always subscription-included; `note` is an
+    optional upgrade hint (empty unless present). Pure, deterministic, instant."""
     prompt = prompt or ""
     mode = features.get("mode", "other")
     wc = features.get("word_count", 0) or 0
@@ -455,18 +465,20 @@ def suggest_model_effort(features: dict, prompt: str) -> dict:
     mech = bool(_MECH_TASK.search(prompt))
 
     if mech and not hard:
-        return {"model": "Haiku 4.5", "effort": "low",
+        return {"model": "Haiku 4.5", "effort": "low", "note": "",
                 "why": "mechanical edit — cheap and fast is all it needs"}
     # design/ideation (incl. "blow me away") → fast-iterating model, not raw power
     if mode == "explore" or (is_design and mode == "execute"):
-        return {"model": "Sonnet 5", "effort": "high",
+        return {"model": "Sonnet 5", "effort": "high", "note": "",
                 "why": "design/iteration — fast turns matter more than raw power"}
-    # hard/architectural, or a big under-specified build → top model
+    # hard/architectural, or a big under-specified build → top subscription model,
+    # with the Fable upgrade noted for the hardest cases.
     if hard or (mode == "execute" and wc >= 45) \
             or (mode == "execute" and len(gaps) >= 3 and wc >= 30):
-        return {"model": "Fable 5", "effort": "xhigh",
+        return {"model": _HARD_MODEL, "effort": "xhigh", "note": _FABLE_NOTE,
                 "why": "hard, ambiguous, or architectural — the top model earns it here"}
     if mode == "execute":
-        return {"model": "Sonnet 5", "effort": "high", "why": "standard feature work"}
-    return {"model": "Sonnet 5", "effort": "medium",
+        return {"model": "Sonnet 5", "effort": "high", "note": "",
+                "why": "standard feature work"}
+    return {"model": "Sonnet 5", "effort": "medium", "note": "",
             "why": "straightforward — no need for the top tier"}

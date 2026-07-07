@@ -74,6 +74,7 @@ fixmyprompt mode sigil      # only coach prompts starting with ??  (fully opt-in
 fixmyprompt off             # disable live coaching entirely
 fixmyprompt tutorial on     # coach EVERY prompt; affirm the good ones (learning mode)
 fixmyprompt suggest "..."   # best-suited model + effort for a prompt
+fixmyprompt tips "..."      # which Claude Code feature to reach for (/clear, /goal, plan mode, subagents)
 fixmyprompt project add "<name-or-path-substring>" "<clarifying question>"
 fixmyprompt project list    # see/manage your per-project clarifying hints
 fixmyprompt daemon on       # optional: fast AI-written rewrites on your subscription, no key
@@ -89,7 +90,8 @@ Start here: run `fixmyprompt try "fix the login page"` to see the coach's judgme
 ### Extra features
 
 - **Tutorial mode** (`fixmyprompt tutorial on`): coaches *every* real prompt regardless of size/vagueness. Well-formed prompts get an **affirmation** ("Well-specified ✓ — done-state, constraints. Keep doing this") so you learn what good looks like, not just what's broken. Continuations/commands/pastes always stay silent.
-- **Model + effort suggestion**: every coaching output recommends the best-suited model + effort tier — mechanical edits → a small/cheap model, design/iteration → a mid-tier model, hard/architectural work → your top-tier model.
+- **Model + effort suggestion**: every coaching output recommends the best-suited model + effort tier — mechanical edits → a small/cheap model, design/iteration → a mid-tier model, hard/architectural work → your top subscription model (with an optional note for stronger models you may have separate access to).
+- **Claude Code feature tips**: FixMyPrompt teaches you the *built-in Claude Code features* that make you efficient, surfaced exactly when they apply — **/clear or /compact** when you're starting new/unrelated work (a bloated context wastes tokens and degrades output), **/goal `<condition>`** for a big task with a verifiable finish line, **plan mode (Shift+Tab)** for architectural changes, and **subagents** for broad multi-file work. Preview any prompt's tip with `fixmyprompt tips "..."`.
 - **Per-project hints**: `fixmyprompt project add` teaches the coach a clarifying question for a specific project/directory (e.g. "which app — mobile or web?"), which then gets baked into rewrites and scaffolds automatically when you're working in that directory.
 - **Acceptance-criteria memory**: the coach learns your recurring done-criteria from the rewrites you accept, and starts suggesting them proactively.
 - **Outcome tracking**: measures whether coached prompts actually lead to *fewer* follow-up corrections in the same session — proof the coaching helps, not just noise. Self-gating: it says "not enough data yet" honestly rather than overclaiming on a handful of samples.

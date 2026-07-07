@@ -21,10 +21,10 @@ Four surfaces. Use as much or as little as you like — everything is off by def
 
 ## The honest ceiling (read this)
 
-Claude Code's hook API **cannot** pre-fill your input line with editable text — there is no supported way to rewrite what's in the box before you send. So the literal "my Enter transforms the text in place" isn't possible. FixMyPrompt gets as close as the platform allows:
+Claude Code's hook API **cannot** pre-fill your input line with editable text — there is no supported way to rewrite what's in the box before you send, and blocking a submission **clears the box**; it does not leave your typed text there. So the literal "my Enter transforms the text in place" isn't possible, and "just press Enter to send it as-is" would be a lie unless something is actually staged for you to send. FixMyPrompt gets as close as the platform allows:
 
-- **Everywhere:** block → refined text on your clipboard → `y` sends it (zero paste), or ⌘V to edit. The refined text is one keystroke away.
-- **In tmux (opt-in):** the refined text is *pasted into your input line, editable, ~0.5s after you hit Enter* — via tmux's pane-targeted paste-buffer. This is the closest thing to the dream, and it's why running Claude Code inside tmux is recommended if you want it.
+- **Everywhere:** every block stages something on your clipboard — the AI rewrite if there is one, or your original prompt unchanged if the coach was just affirming it or surfacing a tip. `y` sends a rewrite (zero paste); otherwise ⌘V then ⏎ sends what's on the clipboard.
+- **In tmux (opt-in):** that same text is *pasted into your input line, editable, ~0.5s after you hit Enter* — via tmux's pane-targeted paste-buffer. This is the closest thing to the dream, and it's why running Claude Code inside tmux is recommended if you want it.
 
 A block can **never** happen twice in a row (a one-shot session flag guarantees the second Enter always goes through), and any error fails **open** — the coach can never lock you out or lose your prompt.
 

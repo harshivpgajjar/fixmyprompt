@@ -26,7 +26,8 @@ touches your real log/state) before you trust the live hook.
 - [ ] **`fixmyprompt status`**: shows mode, sigil, min_words, cooldown, model, config path.
 - [ ] **`fixmyprompt on`**: sets mode=always; `status` confirms it.
 - [ ] **Vague prompt blocks**: with coaching on (new session, since it applies to new sessions), type a short/vague prompt like `make it better` → the turn is intercepted with a coaching banner instead of being sent.
-- [ ] **Send as-is**: after being coached, press Enter again on the *same* unedited text → it sends this time (one-shot bypass) — confirm it does NOT get coached a second time.
+- [ ] **Send as-is**: after being coached, press ⌘V (paste — your prompt is copied to the clipboard, since Claude Code clears the input box on block) then Enter → it sends this time (one-shot bypass) — confirm it does NOT get coached a second time.
+- [ ] **"looks good ✓" / "tip" banners are actually resendable**: trigger an affirm banner (teach-mode on, well-formed prompt) or a tip-only banner (well-formed prompt that also matches a situational tip, e.g. "let's start a new feature: …" fully specified) → confirm the footer says your prompt is on the clipboard, and ⌘V + Enter actually sends your original prompt (this was the bug: these banners used to say "press ⏎ to send" without ever staging anything, so Enter sent nothing).
 - [ ] **Well-formed prompt passes silently**: type a fully-specified prompt (target, action, done-state) → no interception, goes straight to the model.
 - [ ] **Edit-and-resend**: after a coach, edit the prompt substantially and resend → sends normally (not treated as a bare confirm).
 - [ ] **`y` to accept a rewrite**: when the coach offers a rewritten prompt (LLM mode / daemon on), reply `y`/`yes`/`ok` → the rewritten version is what the model acts on.

@@ -163,6 +163,10 @@ class CcTipGateTest(unittest.TestCase):
         self.assertEqual(data.get("decision"), "block")
         self.assertIn("/clear", data["reason"])
         self.assertIn("tip", data["reason"].lower())
+        # Regression: Claude Code clears the input box on block, so this banner
+        # must not tell the user "press Enter to send it as-is" without having
+        # staged the prompt anywhere sendable — the footer must say clipboard.
+        self.assertIn("clipboard", data["reason"].lower())
 
     def test_tip_only_is_loop_proof(self):
         home = tempfile.mkdtemp()

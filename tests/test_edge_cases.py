@@ -208,6 +208,51 @@ class ImageAttachmentTest(unittest.TestCase):
         self.assertFalse(cg._has_attachment({"images": []}, "no attachment here"))
 
 
+class ResendStagingTest(unittest.TestCase):
+    """Claude Code CLEARS the input box on a block — it does not restore the
+    typed text. So a banner that says "press Enter to send it as-is" is only
+    true if something was actually staged for the user to send. _stage_for_resend
+    (used for the affirm/tip banners' original prompt, and for an AI rewrite)
+    copies the text to the clipboard so the instruction is real."""
+
+    def test_stage_for_resend_copies_the_exact_text(self):
+        # cg.subprocess IS the shared global `subprocess` module (not a private
+        # copy), so patching .run on it is process-global — must save/restore.
+        cg = _load_gate_module()
+        calls = []
+        orig_run = subprocess.run
+        cg.subprocess.run = lambda cmd, **kw: calls.append((cmd, kw.get("input")))
+        try:
+            cg._stage_for_resend("is fixmyprompt active?", {"inject": False})
+        finally:
+            cg.subprocess.run = orig_run
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], ["pbcopy"])
+        self.assertEqual(calls[0][1], "is fixmyprompt active?")
+
+    def test_stage_for_resend_is_a_noop_under_the_test_seam(self):
+        # never touch the real clipboard during automated tests
+        cg = _load_gate_module()
+        calls = []
+        orig_run = subprocess.run
+        cg.subprocess.run = lambda *a, **k: calls.append(1)
+        os.environ["FIXMYPROMPT_FAKE_REFINE"] = "1"
+        try:
+            cg._stage_for_resend("anything", {"inject": False})
+        finally:
+            del os.environ["FIXMYPROMPT_FAKE_REFINE"]
+            cg.subprocess.run = orig_run
+        self.assertEqual(calls, [])
+
+    def test_affirm_and_tip_banners_promise_the_clipboard(self):
+        # the exact regression: these footers used to say "press Enter to send"
+        # without ever staging anything — now they must say clipboard, and only
+        # after _stage_for_resend has actually been called (verified above).
+        cg = _load_gate_module()
+        self.assertIn("clipboard", cg._banner("looks fine", "", kind="affirm").lower())
+        self.assertIn("clipboard", cg._banner("some tip", "", kind="tip").lower())
+
+
 def _timed(fn) -> float:
     t = time.time()
     fn()

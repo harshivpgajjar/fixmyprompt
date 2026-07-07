@@ -29,11 +29,12 @@ class TourTest(unittest.TestCase):
         self.assertTrue((Path(home) / ".toured").exists())
 
     def test_tour_teaches_send_as_is_and_image_safety(self):
-        # the tour must fix the confusion the user hit: how to send as-is, and
-        # that images are never lost to the coach.
+        # the tour must fix the confusion the user hit: how to send as-is
+        # (paste from clipboard — Claude Code clears the box, it doesn't retain
+        # the text), and that images are never lost to the coach.
         out = run_cli(["tour"], tempfile.mkdtemp()).stdout.lower()
         self.assertIn("as-is", out)
-        self.assertIn("stays in the box", out)
+        self.assertIn("clipboard", out)
         self.assertIn("never intercepted", out)
 
     def test_tour_covers_the_four_topics(self):

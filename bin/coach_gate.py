@@ -205,6 +205,21 @@ def shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def _stage_for_resend(text: str, cfg: dict) -> None:
+    """Put `text` where the user can actually resend it with one paste.
+
+    Claude Code does NOT restore the typed prompt into the input box after a
+    block — it's gone, not just hidden. So any banner that tells the user
+    "press Enter to send it as-is" is a lie unless we've put that exact text
+    somewhere they can send it from. This copies it to the clipboard (and, in
+    tmux, injects it into the pane) so the instruction is actually true."""
+    if os.environ.get("FIXMYPROMPT_FAKE_REFINE"):  # test seam: never touch the real clipboard
+        return
+    _clipboard(text)
+    if cfg.get("inject"):
+        _tmux_inject(text, cfg.get("inject_delay_ms", 450))
+
+
 def _with_project(scaffold: str, cwd: str | None) -> str:
     """Append the per-project clarifying hint to a local scaffold, if any."""
     try:
@@ -222,10 +237,10 @@ def _banner(body: str, tip: str, kind: str = "refined") -> str:
         footer = "[y ⏎] send refined   ·   [⌘V, edit, ⏎] tweak   ·   [type anything] send your own"
     elif kind == "affirm":
         header = "── FixMyPrompt · looks good ✓ ──"
-        footer = "press ⏎ to send your prompt as-is"
+        footer = "[⌘V, ⏎] your prompt is on the clipboard — paste and send it as-is"
     elif kind == "tip":
         header = "── FixMyPrompt · tip ──"
-        footer = "press ⏎ to send your prompt"
+        footer = "[⌘V, ⏎] your prompt is on the clipboard — paste and send it"
     else:  # scaffold
         header = "── FixMyPrompt · make this sharper ──"
         footer = "fill the <…> (or add the missing piece), then press ⏎ to send"
@@ -391,6 +406,7 @@ def main() -> None:
         if tip_only:
             state.set_pending(session_id, "")
             state.mark_coached(session_id)
+            _stage_for_resend(prompt, cfg)
             scorelog.log(prompt, features, ACTION_COACH, cfg)
             _emit_block(_banner(cc_tip, "", kind="tip"))
 
@@ -474,10 +490,13 @@ def main() -> None:
         # means a bare `y` won't auto-send — it just passes through.
         state.set_pending(session_id, refined_sendable or "")
         state.mark_coached(session_id)
-        if refined_sendable and not os.environ.get("FIXMYPROMPT_FAKE_REFINE"):
-            _clipboard(refined_sendable)
-            if cfg.get("inject"):
-                _tmux_inject(refined_sendable, cfg.get("inject_delay_ms", 450))
+        if refined_sendable:
+            _stage_for_resend(refined_sendable, cfg)
+        elif banner_kind in ("affirm", "tip"):
+            # Nothing was rewritten — the banner tells the user their ORIGINAL
+            # prompt is fine to send as-is, so stage the original (not a
+            # scaffold, which still has <…> to fill and is meant to be edited).
+            _stage_for_resend(prompt, cfg)
         scorelog.log(prompt, features, ACTION_COACH, cfg)
         _emit_block(_banner(banner_body, tip, kind=banner_kind))
     except SystemExit:

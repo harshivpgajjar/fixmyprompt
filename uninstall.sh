@@ -1,45 +1,10 @@
 #!/usr/bin/env bash
-# FixMyPrompt uninstaller — removes the hook from settings.json and the CLI symlink.
-# Leaves ~/.claude/fixmyprompt (your config + prompt log) unless you pass --purge.
+# Thin wrapper — the real uninstaller is the cross-platform install.py.
 set -euo pipefail
-SETTINGS="$HOME/.claude/settings.json"
-UID_N=$(id -u)
-
-# 0. Tear down the daemon + digest LaunchAgents BEFORE removing code, so nothing
-# is left running or respawn-looping (KeepAlive) against a deleted module.
-for label in com.fixmyprompt.daemon com.fixmyprompt.digest; do
-  launchctl bootout "gui/$UID_N/$label" 2>/dev/null || true
-  rm -f "$HOME/Library/LaunchAgents/$label.plist"
-done
-# stop any manually-started daemon too (best-effort; module may still exist)
-python3 -c "import sys; sys.path.insert(0, '$HOME/.claude/fixmyprompt'); from fixmyprompt import daemon; daemon.stop()" 2>/dev/null || true
-echo "✓ daemon + LaunchAgents stopped/removed"
-
-python3 - "$SETTINGS" <<'PY'
-import json, sys
-p = sys.argv[1]
-try:
-    s = json.load(open(p))
-except Exception:
-    sys.exit(0)
-ups = s.get("hooks", {}).get("UserPromptSubmit", [])
-kept = []
-for b in ups:
-    b["hooks"] = [h for h in b.get("hooks", []) if "coach_gate.py" not in h.get("command", "")]
-    if b["hooks"]:
-        kept.append(b)
-if "hooks" in s:
-    s["hooks"]["UserPromptSubmit"] = kept
-    if not kept:
-        s["hooks"].pop("UserPromptSubmit", None)
-json.dump(s, open(p, "w"), indent=2)
-print("✓ hook removed from settings.json")
-PY
-
-rm -f "$HOME/.local/bin/fixmyprompt" && echo "✓ CLI symlink removed"
-if [ "${1:-}" = "--purge" ]; then
-  rm -rf "$HOME/.claude/fixmyprompt" && echo "✓ purged ~/.claude/fixmyprompt (config + logs)"
-else
-  echo "• kept ~/.claude/fixmyprompt (config + prompt log). Pass --purge to delete."
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PY="$(command -v python3 || command -v python || true)"
+if [ -z "$PY" ]; then
+  echo "Python 3 not found on PATH." >&2
+  exit 1
 fi
-echo "Uninstalled. Live coaching stops on your next new session."
+exec "$PY" "$DIR/install.py" --uninstall "$@"

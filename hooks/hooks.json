@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/bin/coach_gate.py",
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/bin/coach_gate_launcher.mjs"],
             "timeout": 20
           }
         ]

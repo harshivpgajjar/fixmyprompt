@@ -168,20 +168,79 @@ def _whisper_context(features: dict) -> str:
     )
 
 
-def _clipboard(text: str) -> None:
+def _copy_via(cmds: list[list[str]], text: str) -> bool:
+    """Try each clipboard command in order; return True on the first that runs.
+    DEVNULL both streams — this runs just before the protocol JSON is written, so
+    nothing from the copy tool may leak onto the hook's stdout."""
+    import shutil
+    for cmd in cmds:
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            subprocess.run(cmd, input=text, text=True, timeout=3, check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _win_clipboard(text: str) -> bool:
+    """Copy to the Windows clipboard via the Win32 API (ctypes, stdlib-only).
+    Full Unicode (CF_UNICODETEXT is UTF-16), instant, no subprocess. user32/
+    kernel32 are always present on Windows; on any other OS ctypes.windll doesn't
+    exist and this returns False (never reached there anyway)."""
     try:
-        # DEVNULL both streams: this runs just before the protocol JSON is
-        # written, so nothing from pbcopy may leak onto the hook's stdout.
-        subprocess.run(["pbcopy"], input=text, text=True, timeout=3, check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import ctypes
+        from ctypes import wintypes
+        CF_UNICODETEXT, GMEM_MOVEABLE = 13, 0x0002
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        k32.GlobalAlloc.restype = wintypes.HGLOBAL
+        k32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+        k32.GlobalLock.restype = ctypes.c_void_p
+        k32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+        if not u32.OpenClipboard(None):
+            return False
+        try:
+            u32.EmptyClipboard()
+            data = text.encode("utf-16-le") + b"\x00\x00"
+            handle = k32.GlobalAlloc(GMEM_MOVEABLE, len(data))
+            if not handle:
+                return False
+            ptr = k32.GlobalLock(handle)
+            ctypes.memmove(ptr, data, len(data))
+            k32.GlobalUnlock(handle)
+            if not u32.SetClipboardData(CF_UNICODETEXT, handle):
+                k32.GlobalFree(handle)
+                return False
+            return True
+        finally:
+            u32.CloseClipboard()
     except Exception:
-        pass
+        return False
+
+
+def _clipboard(text: str) -> bool:
+    """Copy text to the OS clipboard. Returns True on success. Cross-platform,
+    stdlib-only: macOS pbcopy; Windows Win32 API (ctypes) with clip.exe fallback;
+    Linux wl-copy/xclip/xsel (first available)."""
+    try:
+        if sys.platform == "darwin":
+            return _copy_via([["pbcopy"]], text)
+        if sys.platform == "win32":
+            return _win_clipboard(text) or _copy_via([["clip"]], text)
+        return _copy_via([["wl-copy"], ["xclip", "-selection", "clipboard"],
+                          ["xsel", "--clipboard", "--input"]], text)
+    except Exception:
+        return False
 
 
 def _tmux_inject(text: str, delay_ms: int) -> None:
     """Detached: after a short delay, paste the refined text into the tmux pane
     so it lands in the input line, editable. Bracketed paste (-p) keeps newlines
     from submitting. Pane-targeted so it survives focus changes."""
+    if sys.platform == "win32":
+        return  # no tmux/paste-buffer equivalent on Windows — clipboard-only there
     pane = os.environ.get("TMUX_PANE")
     if not os.environ.get("TMUX") or not pane:
         return
@@ -205,8 +264,9 @@ def shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
-def _stage_for_resend(text: str, cfg: dict) -> None:
-    """Put `text` where the user can actually resend it with one paste.
+def _stage_for_resend(text: str, cfg: dict) -> bool:
+    """Put `text` where the user can actually resend it with one paste. Returns
+    True if it made it onto the clipboard (so the banner can say so honestly).
 
     Claude Code does NOT restore the typed prompt into the input box after a
     block — it's gone, not just hidden. So any banner that tells the user
@@ -214,10 +274,11 @@ def _stage_for_resend(text: str, cfg: dict) -> None:
     somewhere they can send it from. This copies it to the clipboard (and, in
     tmux, injects it into the pane) so the instruction is actually true."""
     if os.environ.get("FIXMYPROMPT_FAKE_REFINE"):  # test seam: never touch the real clipboard
-        return
-    _clipboard(text)
+        return True
+    ok = _clipboard(text)
     if cfg.get("inject"):
         _tmux_inject(text, cfg.get("inject_delay_ms", 450))
+    return ok
 
 
 def _with_project(scaffold: str, cwd: str | None) -> str:
@@ -230,20 +291,34 @@ def _with_project(scaffold: str, cwd: str | None) -> str:
         return scaffold
 
 
-def _banner(body: str, tip: str, kind: str = "refined") -> str:
+# Paste chord is OS-specific — ⌘V on macOS, Ctrl+V everywhere else.
+_PASTE = "⌘V" if sys.platform == "darwin" else "Ctrl+V"
+
+
+def _banner(body: str, tip: str, kind: str = "refined", staged: bool = True) -> str:
+    """`staged` = whether the text actually made it to the clipboard. When False
+    (rare — e.g. headless Linux with no clipboard tool) we don't promise a paste
+    the user can't perform."""
     rule = "─" * 52
     if kind == "refined":
-        header = "── FixMyPrompt · refined prompt (copied to clipboard) ──"
-        footer = "[y ⏎] send refined   ·   [⌘V, edit, ⏎] tweak   ·   [type anything] send your own"
+        if staged:
+            header = "── FixMyPrompt · refined prompt (copied to clipboard) ──"
+            footer = f"[y ⏎] send refined   ·   [{_PASTE}, edit, ⏎] tweak   ·   [type anything] send your own"
+        else:
+            header = "── FixMyPrompt · refined prompt ──"
+            footer = "[y ⏎] send refined   ·   [type anything] send your own"
     elif kind == "affirm":
         header = "── FixMyPrompt · looks good ✓ ──"
-        footer = "[⌘V, ⏎] your prompt is on the clipboard — paste and send it as-is"
+        footer = (f"[{_PASTE}, ⏎] your prompt is on the clipboard — paste and send it as-is"
+                  if staged else "your prompt is well-formed — send it (retype to resend)")
     elif kind == "tip":
         header = "── FixMyPrompt · tip ──"
-        footer = "[⌘V, ⏎] your prompt is on the clipboard — paste and send it"
+        footer = (f"[{_PASTE}, ⏎] your prompt is on the clipboard — paste and send it"
+                  if staged else "send your prompt (retype to resend)")
     else:  # scaffold
         header = "── FixMyPrompt · make this sharper ──"
-        footer = "fill the <…> (or add the missing piece), then press ⏎ to send"
+        footer = (f"[{_PASTE}, ⏎] your prompt is on the clipboard — paste it, add the missing piece above, and send"
+                  if staged else "add the missing piece above, then send your prompt (retype to resend)")
     out = [header, "", body.strip()]
     if tip.strip():
         out += ["", f"why: {tip.strip()}"]
@@ -251,9 +326,29 @@ def _banner(body: str, tip: str, kind: str = "refined") -> str:
     return "\n".join(out)
 
 
+def _utf8_io() -> None:
+    """Force UTF-8 on the std streams. Windows stdio defaults to the locale codec
+    (cp1252) when redirected — which is exactly how a hook is invoked — so a
+    non-ASCII prompt would UnicodeDecodeError and the emit could UnicodeEncodeError.
+    No-op on macOS/Linux (already UTF-8). Belt-and-suspenders with the launcher's
+    PYTHONUTF8=1 and with reading stdin as bytes below."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def _read_stdin() -> dict:
     try:
-        data = json.loads(sys.stdin.read() or "{}")
+        # Read raw BYTES so decoding is locale-independent: json.loads detects
+        # UTF-8/16/32 (and a BOM) per the JSON spec, so a Windows cp1252 console
+        # can't corrupt or drop non-ASCII characters in the prompt.
+        buf = getattr(sys.stdin, "buffer", None)
+        raw = buf.read() if buf is not None else sys.stdin.read()
+        if isinstance(raw, str):
+            raw = raw.encode("utf-8", "replace")
+        data = json.loads(raw or b"{}")
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
@@ -281,6 +376,7 @@ def _refine(body: str, cfg: dict, cwd: str | None = None) -> dict:
 
 
 def main() -> None:
+    _utf8_io()  # make stdio UTF-8 before anything reads/writes (Windows-safe)
     # RECURSION GUARD (must be first): the refiner shells out to `claude -p`,
     # whose own UserPromptSubmit hook would re-enter this gate and, if it also
     # coached, spawn another `claude -p` — an infinite loop. The refiner sets
@@ -406,9 +502,9 @@ def main() -> None:
         if tip_only:
             state.set_pending(session_id, "")
             state.mark_coached(session_id)
-            _stage_for_resend(prompt, cfg)
+            staged = _stage_for_resend(prompt, cfg)
             scorelog.log(prompt, features, ACTION_COACH, cfg)
-            _emit_block(_banner(cc_tip, "", kind="tip"))
+            _emit_block(_banner(cc_tip, "", kind="tip", staged=staged))
 
         # 5. REFINE — pick the path by whether a fast LLM is configured.
         #    LLM mode (ANTHROPIC_API_KEY set, or the test seam active): get an
@@ -490,15 +586,18 @@ def main() -> None:
         # means a bare `y` won't auto-send — it just passes through.
         state.set_pending(session_id, refined_sendable or "")
         state.mark_coached(session_id)
+        staged = True
         if refined_sendable:
-            _stage_for_resend(refined_sendable, cfg)
-        elif banner_kind in ("affirm", "tip"):
-            # Nothing was rewritten — the banner tells the user their ORIGINAL
-            # prompt is fine to send as-is, so stage the original (not a
-            # scaffold, which still has <…> to fill and is meant to be edited).
-            _stage_for_resend(prompt, cfg)
+            staged = _stage_for_resend(refined_sendable, cfg)
+        else:
+            # No auto-sendable rewrite (affirm / tip / scaffold). Claude Code
+            # clears the input on a block, so stage the user's ORIGINAL prompt on
+            # the clipboard — for affirm/tip they send it as-is; for a scaffold
+            # they paste it, add the missing piece the banner names, and send.
+            # Without this, "press ⏎ to send" does nothing (the box is empty).
+            staged = _stage_for_resend(prompt, cfg)
         scorelog.log(prompt, features, ACTION_COACH, cfg)
-        _emit_block(_banner(banner_body, tip, kind=banner_kind))
+        _emit_block(_banner(banner_body, tip, kind=banner_kind, staged=staged))
     except SystemExit:
         raise
     except BaseException:

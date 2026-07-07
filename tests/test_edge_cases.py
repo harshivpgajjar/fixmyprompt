@@ -211,46 +211,112 @@ class ImageAttachmentTest(unittest.TestCase):
 class ResendStagingTest(unittest.TestCase):
     """Claude Code CLEARS the input box on a block — it does not restore the
     typed text. So a banner that says "press Enter to send it as-is" is only
-    true if something was actually staged for the user to send. _stage_for_resend
-    (used for the affirm/tip banners' original prompt, and for an AI rewrite)
-    copies the text to the clipboard so the instruction is real."""
+    true if something was actually staged. The clipboard backend is
+    cross-platform (pbcopy / Win32 ctypes+clip / xclip-xsel-wl-copy)."""
 
-    def test_stage_for_resend_copies_the_exact_text(self):
-        # cg.subprocess IS the shared global `subprocess` module (not a private
-        # copy), so patching .run on it is process-global — must save/restore.
+    def test_copy_via_pipes_the_exact_text(self):
+        # platform-agnostic: _copy_via runs the first available command and pipes
+        # the EXACT text (no mangling). Stub shutil.which so a fake tool "exists".
+        import shutil
         cg = _load_gate_module()
-        calls = []
-        orig_run = subprocess.run
+        calls, orig_run, orig_which = [], subprocess.run, shutil.which
         cg.subprocess.run = lambda cmd, **kw: calls.append((cmd, kw.get("input")))
+        shutil.which = lambda name: "/fake/" + name
         try:
-            cg._stage_for_resend("is fixmyprompt active?", {"inject": False})
+            ok = cg._copy_via([["mycopy", "-x"]], "exact text ✓ café")
         finally:
-            cg.subprocess.run = orig_run
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0], ["pbcopy"])
-        self.assertEqual(calls[0][1], "is fixmyprompt active?")
+            cg.subprocess.run, shutil.which = orig_run, orig_which
+        self.assertTrue(ok)
+        self.assertEqual(calls[0][0], ["mycopy", "-x"])
+        self.assertEqual(calls[0][1], "exact text ✓ café")
+
+    def test_copy_via_skips_missing_tools_and_reports_failure(self):
+        import shutil
+        cg = _load_gate_module()
+        orig_which = shutil.which
+        shutil.which = lambda name: None  # nothing available
+        try:
+            self.assertFalse(cg._copy_via([["nope1"], ["nope2"]], "x"))
+        finally:
+            shutil.which = orig_which
+
+    def test_clipboard_returns_bool_and_never_raises(self):
+        # on any platform, _clipboard returns a bool and doesn't blow up
+        cg = _load_gate_module()
+        self.assertIsInstance(cg._clipboard("hello"), bool)
+
+    def test_win_clipboard_false_off_windows(self):
+        # ctypes.windll doesn't exist off Windows -> graceful False, no raise
+        cg = _load_gate_module()
+        if sys.platform != "win32":
+            self.assertFalse(cg._win_clipboard("x"))
 
     def test_stage_for_resend_is_a_noop_under_the_test_seam(self):
-        # never touch the real clipboard during automated tests
+        # never touch the real clipboard during automated tests; returns True
         cg = _load_gate_module()
-        calls = []
-        orig_run = subprocess.run
+        calls, orig_run = [], subprocess.run
         cg.subprocess.run = lambda *a, **k: calls.append(1)
         os.environ["FIXMYPROMPT_FAKE_REFINE"] = "1"
         try:
-            cg._stage_for_resend("anything", {"inject": False})
+            self.assertTrue(cg._stage_for_resend("anything", {"inject": False}))
         finally:
             del os.environ["FIXMYPROMPT_FAKE_REFINE"]
             cg.subprocess.run = orig_run
         self.assertEqual(calls, [])
 
-    def test_affirm_and_tip_banners_promise_the_clipboard(self):
-        # the exact regression: these footers used to say "press Enter to send"
-        # without ever staging anything — now they must say clipboard, and only
-        # after _stage_for_resend has actually been called (verified above).
+    def test_all_no_rewrite_banners_promise_the_clipboard(self):
+        # affirm, tip, AND scaffold must all point the user at the clipboard when
+        # staged — scaffold was the gap that left "press Enter" doing nothing.
         cg = _load_gate_module()
-        self.assertIn("clipboard", cg._banner("looks fine", "", kind="affirm").lower())
-        self.assertIn("clipboard", cg._banner("some tip", "", kind="tip").lower())
+        for kind in ("affirm", "tip", "scaffold"):
+            self.assertIn("clipboard", cg._banner("body", "", kind=kind, staged=True).lower(), kind)
+
+    def test_paste_key_is_platform_appropriate(self):
+        cg = _load_gate_module()
+        expected = "⌘V" if sys.platform == "darwin" else "Ctrl+V"
+        self.assertEqual(cg._PASTE, expected)
+
+
+class DaemonCapabilityTest(unittest.TestCase):
+    def test_daemon_supported_flag_matches_platform(self):
+        from fixmyprompt import daemon
+        self.assertEqual(daemon.DAEMON_SUPPORTED,
+                         hasattr(__import__("socket"), "AF_UNIX") and hasattr(os, "fork"))
+
+    def test_lifecycle_is_a_safe_noop_when_unsupported(self):
+        # simulate an unsupported platform: start/stop/is_running must not raise
+        from fixmyprompt import daemon
+        orig = daemon.DAEMON_SUPPORTED
+        daemon.DAEMON_SUPPORTED = False
+        try:
+            self.assertFalse(daemon.is_running())
+            self.assertFalse(daemon.start())
+            self.assertFalse(daemon.stop())
+        finally:
+            daemon.DAEMON_SUPPORTED = orig
+
+
+class ScaffoldStagingTest(unittest.TestCase):
+    """A scaffold block must offer a REAL send affordance (clipboard, or an
+    honest 'retype') — never a bare 'press ⏎ to send' that does nothing because
+    Claude Code cleared the input box. This was the live regression: scaffolds
+    were the one banner kind that never staged the prompt anywhere."""
+
+    def test_scaffold_footer_offers_a_real_affordance(self):
+        home = tempfile.mkdtemp()
+        (Path(home) / "config.json").write_text('{"mode":"always","tutorial":false}')
+        env = {**os.environ, "FIXMYPROMPT_HOME": home, "PCOACH_COOLDOWN": "0",
+               "ANTHROPIC_API_KEY": "", "PATH": os.path.join(home, "nobin")}
+        out = subprocess.run(
+            [sys.executable, str(GATE)],
+            input=json.dumps({"prompt": "make the whole dashboard thing better somehow",
+                              "session_id": "s"}),
+            capture_output=True, text=True, env=env).stdout.strip()
+        self.assertTrue(out)
+        reason = json.loads(out)["reason"].lower()
+        self.assertIn("make this sharper", reason)                 # it IS a scaffold
+        self.assertTrue("clipboard" in reason or "retype" in reason, reason)
+        self.assertNotIn("then press ⏎ to send", reason)           # never the dead instruction
 
 
 def _timed(fn) -> float:

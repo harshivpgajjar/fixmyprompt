@@ -1,0 +1,12 @@
+# Normalize line endings. Keep LF on the executable scripts so a Windows clone
+# (core.autocrlf=true) can't turn a shebang into `#!/usr/bin/env python3\r`,
+# which breaks the interpreter lookup under Git Bash/WSL.
+* text=auto
+*.py text eol=lf
+*.sh text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+bin/fixmyprompt text eol=lf
+# PowerShell prefers CRLF
+*.ps1 text eol=crlf

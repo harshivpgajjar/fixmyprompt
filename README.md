@@ -49,15 +49,25 @@ Inside a Claude Code session:
 
 This wires the `/refine` skill and the live coaching hook automatically. **Coaching is OFF by default** — nothing intercepts your prompts until you opt in (see Usage below). Restart your session (or start a new one) for the hook to take effect.
 
-### Option B — clone + install script
+### Option B — clone + install script (macOS · Linux · Windows)
 
 ```bash
 git clone https://github.com/harshivpgajjar/fixmyprompt.git
 cd fixmyprompt
-./install.sh
+python install.py          # macOS / Linux / Windows  (or:  ./install.sh)
 ```
 
-This installs the runtime to `~/.claude/fixmyprompt`, wires the `UserPromptSubmit` hook into `~/.claude/settings.json`, installs the `/refine` skill, and puts the `fixmyprompt` CLI on your `PATH` (`~/.local/bin` — make sure it's there). Re-running `./install.sh` after a `git pull` is safe: it never touches your config, prompt log, or learned criteria/project hints.
+On **Windows** (PowerShell):
+
+```powershell
+git clone https://github.com/harshivpgajjar/fixmyprompt.git
+cd fixmyprompt
+py install.py              # or:  .\install.ps1
+```
+
+The cross-platform `install.py` installs the runtime to `~/.claude/fixmyprompt`, wires the `UserPromptSubmit` hook into `~/.claude/settings.json` (via a tiny Node launcher so it works identically on every OS — Node ships with Claude Code), installs the `/refine` skill, and puts the `fixmyprompt` CLI on your `PATH` (a symlink in `~/.local/bin` on macOS/Linux; a `.cmd` shim + user-PATH entry on Windows). Re-running it after a `git pull` is safe: it never touches your config, prompt log, or learned criteria/project hints, and it refuses to overwrite a malformed `settings.json`.
+
+> **Windows note:** install real Python from **python.org** (tick *"Add python.exe to PATH"*) — the Microsoft Store `python`/`python3` aliases don't work for the hook. The warm daemon and tmux inject are macOS/Linux-only; on Windows FixMyPrompt uses the keyless local-scaffold coach (no daemon needed) and the clipboard for send-as-is.
 
 ### Updating
 
@@ -83,14 +93,13 @@ The easiest path is [Option A or B above](#install) — both wire everything for
 1. **Get the code onto your machine** and into the runtime location the plugin expects:
    ```bash
    git clone https://github.com/harshivpgajjar/fixmyprompt.git ~/.claude/fixmyprompt
-   chmod +x ~/.claude/fixmyprompt/bin/coach_gate.py ~/.claude/fixmyprompt/bin/fixmyprompt
    ```
 
 2. **Open your Claude Code settings file** (create it if it doesn't exist):
    - macOS / Linux: `~/.claude/settings.json`
    - Windows: `%USERPROFILE%\.claude\settings.json`
 
-3. **Add the `UserPromptSubmit` hook.** Merge this into the JSON (keep any hooks you already have — `UserPromptSubmit` is an array, so append to it rather than replacing):
+3. **Add the `UserPromptSubmit` hook.** Merge this into the JSON (keep any hooks you already have — `UserPromptSubmit` is an array, so append to it rather than replacing). The hook invokes a tiny **Node launcher** that finds Python and runs the coach — this one command works on macOS, Linux, and Windows (replace the path with your absolute path; forward slashes are fine on Windows too):
    ```json
    {
      "hooks": {
@@ -100,7 +109,8 @@ The easiest path is [Option A or B above](#install) — both wire everything for
            "hooks": [
              {
                "type": "command",
-               "command": "python3 \"$HOME/.claude/fixmyprompt/bin/coach_gate.py\"",
+               "command": "node",
+               "args": ["<HOME>/.claude/fixmyprompt/bin/coach_gate_launcher.mjs"],
                "timeout": 20
              }
            ]

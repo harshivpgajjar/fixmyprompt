@@ -24,6 +24,8 @@ CANNED = {
 }
 
 
+@unittest.skipUnless(hasattr(socket, "AF_UNIX"),
+                     "the warm daemon uses AF_UNIX sockets — macOS/Linux only")
 class DaemonTestBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="fixmyprompt-test-")

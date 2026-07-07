@@ -127,7 +127,9 @@ def run(cli_path: str | None = None, interactive: bool | None = None) -> None:
     if interactive and cli_path and not daemon.is_running():
         if _ask_yn(interactive, "Enable the daemon now?", False):
             try:
-                subprocess.run([cli_path, "daemon", "on"], timeout=30)
+                # via sys.executable — the CLI is an extensionless Python script
+                # that Windows can't run directly.
+                subprocess.run([sys.executable, cli_path, "daemon", "on"], timeout=30)
             except Exception:
                 print(_c("33", "    • couldn't start it here — run `fixmyprompt daemon on` yourself"))
     _pause(interactive)

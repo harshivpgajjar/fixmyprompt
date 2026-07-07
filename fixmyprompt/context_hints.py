@@ -93,7 +93,7 @@ def _projects_path():
 
 def _read_json(path):
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
 
@@ -101,7 +101,10 @@ def _read_json(path):
 def _write_json(path, obj) -> None:
     try:
         config.RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n")
+        # encoding=utf-8 is REQUIRED: DEFAULT_CRITERIA holds non-ASCII (e.g. "≥"),
+        # and write_text defaults to cp1252 on Windows → UnicodeEncodeError →
+        # the criteria/hints memory would silently never persist.
+        path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     except Exception:
         pass  # read-only disk etc. — callers already hold the in-memory value
 

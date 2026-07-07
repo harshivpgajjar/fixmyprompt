@@ -37,7 +37,7 @@ def _daemon_up() -> bool:
 
 def _system_prompt(context: str) -> str:
     try:
-        base = _SYSTEM_PATH.read_text()
+        base = _SYSTEM_PATH.read_text(encoding="utf-8")
     except Exception:
         base = (
             "You are FixMyPrompt, a prompt coach. Return strict JSON "
@@ -55,7 +55,7 @@ def load_user_context() -> str:
         p = home / name
         try:
             if p.exists():
-                parts.append(f"### {name}\n{p.read_text()[:3000]}")
+                parts.append(f"### {name}\n{p.read_text(encoding='utf-8')[:3000]}")
         except Exception:
             pass
     return "\n\n".join(parts)
@@ -168,13 +168,20 @@ def _via_cli(prompt: str, system: str, cfg: dict) -> dict | None:
         + prompt
     )
     try:
+        # Resolve the executable via shutil.which so PATHEXT is honored — on
+        # Windows the Claude CLI is `claude.cmd`, which a bare "claude" in
+        # CreateProcess would never find (FileNotFoundError → offline fallback).
+        import shutil
+        claude = shutil.which("claude") or "claude"
         # Feed the prompt on stdin, not argv — argv is world-visible via `ps`,
-        # and the prompt can contain sensitive content.
+        # and the prompt can contain sensitive content. text=True + explicit
+        # utf-8 so a Windows cp1252 locale can't mangle the prompt/response.
         proc = subprocess.run(
-            ["claude", "-p", "--model", cfg["model"]],
+            [claude, "-p", "--model", cfg["model"]],
             input=combined,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=cfg.get("refine_timeout_sec", 15),
             env={**os.environ, "FIXMYPROMPT_IN_REFINER": "1"},
         )

@@ -41,6 +41,13 @@ from pathlib import Path
 
 from . import config
 
+# The warm daemon needs AF_UNIX sockets and fork-based daemonization — both
+# macOS/Linux-only (CPython doesn't expose socket.AF_UNIX on Windows through
+# 3.13, and os.fork doesn't exist there). When unsupported, every lifecycle
+# entry point short-circuits to "stopped/no-op" so nothing raises on Windows;
+# the hook falls back to the keyless local-scaffold path (already the default).
+DAEMON_SUPPORTED = hasattr(socket, "AF_UNIX") and hasattr(os, "fork")
+
 # ------------------------------------------------------------------ paths
 # Computed live from config.RUNTIME_DIR so a config reload (tests set
 # FIXMYPROMPT_HOME per-test) is always honored without reloading this module.
@@ -586,6 +593,8 @@ def refine(prompt: str, timeout: float = 2.0, context: str = ""):
 
 
 def is_running() -> bool:
+    if not DAEMON_SUPPORTED:
+        return False
     try:
         pid = int(pid_path().read_text().strip())
     except Exception:
@@ -629,6 +638,8 @@ def _remove_runtime_files() -> None:
 def start() -> bool:
     """Daemonize (double-fork + setsid) and serve. No-op if already running.
     Returns True once a daemon is confirmed up (socket present)."""
+    if not DAEMON_SUPPORTED:
+        return False  # no AF_UNIX / fork on Windows — caller falls back to scaffolds
     if is_running():
         return True
     _remove_runtime_files()  # stale leftovers from a crashed instance
@@ -672,6 +683,8 @@ def stop() -> bool:
     """Terminate the daemon if one is running; always clean up socket + pid.
     Safe no-op when nothing runs. Never raises. Returns True if a process
     was signaled."""
+    if not DAEMON_SUPPORTED:
+        return False
     signaled = False
     pid = None
     try:
@@ -686,7 +699,7 @@ def stop() -> bool:
             while time.monotonic() < deadline:
                 os.kill(pid, 0)  # raises ProcessLookupError once it exits
                 time.sleep(0.1)
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
         except OSError:
             pass  # already gone (or not ours) — cleanup below either way
     _remove_runtime_files()

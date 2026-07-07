@@ -94,17 +94,29 @@ def cmd_digest(args):
     import subprocess
     period = args[0] if args and args[0] in ("day", "week", "month") else "week"
     text = "📊 FixMyPrompt weekly progress\n\n" + report.progress(period)
+    import shutil
+    if _NOTIFY.exists() and shutil.which("bash"):
+        try:
+            subprocess.run(["bash", str(_NOTIFY), text], capture_output=True, timeout=15)
+            print("digest sent to Telegram.")
+            return
+        except Exception:
+            pass  # fall through to printing
+    print(text)
     if _NOTIFY.exists():
-        subprocess.run(["bash", str(_NOTIFY), text], capture_output=True)
-        print("digest sent to Telegram.")
+        print("\n(notify.sh is a POSIX shell script — printing instead on this platform)")
     else:
-        print(text)
         print("\n(no notifier found at ~/.claude/memory/notify.sh — printed instead)")
 
 
 def cmd_digest_schedule(args):
     """`fixmyprompt digest-schedule on|off` — Sunday 9am Telegram digest."""
     import subprocess
+    if not _launchd_ok():
+        print("Scheduling uses launchd and is macOS-only. On this platform, run")
+        print("`fixmyprompt digest` from your OS scheduler instead (e.g. Task")
+        print("Scheduler on Windows, cron on Linux).")
+        return
     on = args and args[0] == "on"
     if on:
         plist = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -365,6 +377,14 @@ def _write_launch_agent():
     _LAUNCH_AGENT.write_text(plist)
 
 
+def _launchd_ok() -> bool:
+    """The warm daemon relies on AF_UNIX sockets + launchd, both macOS/unix-only.
+    On Windows we degrade to the built-in keyless local-scaffold coach."""
+    import shutil
+    return (sys.platform == "darwin" and hasattr(os, "getuid")
+            and shutil.which("launchctl") is not None)
+
+
 def cmd_daemon(args):
     import subprocess
     sub = args[0] if args else "status"
@@ -374,7 +394,13 @@ def cmd_daemon(args):
               + (f" (pid {s['pid']}, {s.get('turns_served', 0)} turns served)" if s['running'] else ""))
         print(f"  socket: {s['socket']}")
         print(f"  keep-alive agent: {'installed' if _LAUNCH_AGENT.exists() else 'not installed'}")
-    elif sub == "start":
+        return
+    if not _launchd_ok():
+        print("The warm daemon is macOS-only (it uses AF_UNIX sockets + launchd).")
+        print("On this platform FixMyPrompt uses the built-in keyless local-scaffold")
+        print("coach instead — no daemon needed. Everything else works normally.")
+        return
+    if sub == "start":
         # manual, non-launchd start (for testing). If the KeepAlive agent owns
         # the daemon, don't fork a competing one.
         if _agent_loaded():
@@ -497,7 +523,20 @@ def _print_usage():
         print(f"  {name:<34} {desc}")
 
 
+def _utf8_stdio():
+    """Force UTF-8 on stdout/stderr. On Windows, redirected streams default to
+    the locale codec (cp1252), so any command that prints a sparkline/arrow/emoji/
+    box-drawing char (report, progress, tour, tips, suggest, features) would
+    UnicodeEncodeError when piped or redirected. No-op on macOS/Linux."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main():
+    _utf8_stdio()
     argv = sys.argv[1:]
     # First-ever run with no command: launch the onboarding tour (if interactive).
     if not argv:

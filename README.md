@@ -257,13 +257,15 @@ scorer.py    refiner.py   daemon.py   state.py    context_hints.py
 
 ## Tests
 
-Pure stdlib, zero dependencies:
+Pure stdlib, zero dependencies, run from the repo root:
 
 ```bash
-cd fixmyprompt && python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v
 ```
 
-~200 tests covering: classifier precision/recall on real prompt styles, the loop-proof and fail-open invariants, the accept/edit/override branches, whisper/tutorial contract correctness, sigil mode, the daemon lifecycle and recursion guard, secret redaction, and the report/progress/outcome math.
+245+ tests covering: classifier precision/recall on real prompt styles, the loop-proof and fail-open invariants, the accept/edit/override branches, whisper/tutorial contract correctness, sigil mode, the daemon lifecycle and recursion guard, secret redaction, image-attachment preservation, ReDoS guards on the classifier regexes, and the report/progress/outcome math.
+
+For a hands-on pass in a real session (the *feel*, not just the logic), see [docs/MANUAL_TESTING.md](docs/MANUAL_TESTING.md) — a checklist covering every feature.
 
 ## Uninstall
 

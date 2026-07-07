@@ -79,47 +79,45 @@ def _daemon_up() -> bool:
 _INTERCEPTING_MODES = ("always", "sigil", "whisper")
 
 
+def _emit_json(obj: dict) -> None:
+    """Serialize fully, then do ONE write. An all-or-nothing emit keeps the
+    invariant 'stdout is only ever valid-JSON-or-empty' — a fault can't leave a
+    half-serialized object on the protocol stream."""
+    payload = json.dumps(obj)
+    sys.stdout.write(payload)
+    sys.stdout.flush()
+    sys.exit(0)
+
+
 def _emit_passthrough() -> None:
     """No output = prompt goes to the model unchanged."""
     sys.exit(0)
 
 
 def _emit_block(reason: str) -> None:
-    json.dump({"decision": "block", "reason": reason}, sys.stdout)
-    sys.stdout.flush()
-    sys.exit(0)
+    _emit_json({"decision": "block", "reason": reason})
 
 
 def _emit_accept(refined: str) -> None:
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "UserPromptSubmit",
-                "additionalContext": (
-                    "The user reviewed and approved this refined version of the "
-                    "prompt they just tried to send. Treat THIS as their actual "
-                    "request and act on it directly:\n\n" + refined
-                ),
-            }
-        },
-        sys.stdout,
-    )
-    sys.stdout.flush()
-    sys.exit(0)
+    _emit_json({
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": (
+                "The user reviewed and approved this refined version of the "
+                "prompt they just tried to send. Treat THIS as their actual "
+                "request and act on it directly:\n\n" + refined
+            ),
+        }
+    })
 
 
 def _emit_whisper(context: str) -> None:
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "UserPromptSubmit",
-                "additionalContext": context,
-            }
-        },
-        sys.stdout,
-    )
-    sys.stdout.flush()
-    sys.exit(0)
+    _emit_json({
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": context,
+        }
+    })
 
 
 def _whisper_context(features: dict) -> str:
@@ -138,7 +136,10 @@ def _whisper_context(features: dict) -> str:
 
 def _clipboard(text: str) -> None:
     try:
-        subprocess.run(["pbcopy"], input=text, text=True, timeout=3, check=False)
+        # DEVNULL both streams: this runs just before the protocol JSON is
+        # written, so nothing from pbcopy may leak onto the hook's stdout.
+        subprocess.run(["pbcopy"], input=text, text=True, timeout=3, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
 

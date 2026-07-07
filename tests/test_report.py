@@ -1,9 +1,7 @@
 """Tests for the weekly report + scorelog round-trip (privacy + trend math)."""
-import json
 import os
 import tempfile
 import unittest
-from pathlib import Path
 
 
 class ReportTest(unittest.TestCase):

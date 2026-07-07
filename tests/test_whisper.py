@@ -35,7 +35,7 @@ class WhisperTest(unittest.TestCase):
 
     def _actions(self):
         log = Path(self.home) / "prompt-log.jsonl"
-        return [json.loads(l)["action"] for l in log.read_text().splitlines()] if log.exists() else []
+        return [json.loads(line)["action"] for line in log.read_text().splitlines()] if log.exists() else []
 
     def test_whisper_injects_not_blocks(self):
         out = run(ROUGH, "W1", self.home)

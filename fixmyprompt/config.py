@@ -104,6 +104,8 @@ def save(patch: dict) -> dict:
             current = json.loads(CONFIG_PATH.read_text())
     except Exception:
         current = {}
+    if not isinstance(current, dict):  # a corrupt/non-dict config.json must not crash save()
+        current = {}
     current.update({k: v for k, v in patch.items() if k in DEFAULTS})
     CONFIG_PATH.write_text(json.dumps(current, indent=2) + "\n")
     return load()

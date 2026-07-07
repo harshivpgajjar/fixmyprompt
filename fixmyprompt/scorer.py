@@ -193,7 +193,10 @@ _DESIGN = re.compile(
 
 _REFERENCE = re.compile(
     r"(?:"
-    r"https?://\S+|www\.\S+|\S+\.(?:com|io|app|dev|design|studio|net|org|co|ai)\b|"
+    # NB: the pre-dot run is bounded ([^\s.]{1,40}, no unbounded \S+) so a long
+    # single-line paste (minified JS, base64, a JWT) can't trigger O(n²)
+    # backtracking and stall the submit hook.
+    r"https?://\S+|www\.\S+|[^\s.]{1,40}\.(?:com|io|app|dev|design|studio|net|org|co|ai)\b|"
     r"\blike (?:this|that|these|those|the \w+|my \w+|our \w+|your \w+)\b|"
     r"\bsimilar to\b|\bsame as\b|\binspired by\b|\bin the style of\b|\bstyle of\b|"
     r"\bbased on\b|\breference\b|\brefer to\b|\bà la\b|\ba la\b|\bmatch(?:ing)? the\b|"
@@ -316,11 +319,18 @@ def classify(prompt: str) -> dict:
     if not isinstance(prompt, str):
         prompt = ""
     stripped = prompt.strip()
+    wc = len(re.findall(r"\S+", stripped))  # true word count, from the full text
+    looks_paste = _looks_like_paste(prompt) if stripped else False
+
+    # Bound what the lexicon regexes scan. Real prompts are far under this, and a
+    # giant paste is gated to silence anyway — this is defense-in-depth so no
+    # single regex can turn a huge paste into a submit-time stall (cf. _REFERENCE).
+    if len(prompt) > 8000:
+        prompt = prompt[:8000]
+        stripped = prompt.strip()
     words = re.findall(r"\S+", stripped)
-    wc = len(words)
 
     is_command = stripped[:1] in ("/", "!", "#")
-    looks_paste = _looks_like_paste(prompt) if stripped else False
     is_continuation = (not looks_paste) and _is_continuation(words, is_command)
 
     is_design = bool(_DESIGN.search(prompt))
@@ -427,7 +437,7 @@ def should_coach(features: dict, cfg: dict) -> bool:
     # "good" looks like, not just what's broken.
     if cfg.get("tutorial"):
         return True
-    if (features.get("word_count") or 0) < cfg.get("min_words", 12):
+    if (features.get("word_count") or 0) < cfg.get("min_words", 4):
         return False
     # never coach intentional exploration or non-tasks
     if features.get("mode") != "execute":

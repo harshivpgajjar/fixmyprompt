@@ -41,7 +41,7 @@ class LocalGateTest(unittest.TestCase):
         log = Path(self.home) / "prompt-log.jsonl"
         if not log.exists():
             return []
-        return [json.loads(l)["action"] for l in log.read_text().splitlines() if l.strip()]
+        return [json.loads(line)["action"] for line in log.read_text().splitlines() if line.strip()]
 
     def test_scaffold_block_no_network(self):
         out = run(ROUGH, "L1", self.home)

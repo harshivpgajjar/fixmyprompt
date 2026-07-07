@@ -33,10 +33,34 @@ class CcTipDetectionTest(unittest.TestCase):
                   "build the whole checkout flow end-to-end"]:
             self.assertIn("/goal", tip(p) or "", p)
 
-    def test_hard_task_suggests_plan_mode(self):
+    def test_goal_condition_filled_from_prompt(self):
+        # execution path: the /goal line is paste-ready, not a <placeholder>
+        t = tip("fix the suite, keep going until all tests pass")
+        self.assertIn("/goal all tests pass", t)
+        self.assertNotIn("<condition>", t)
+
+    def test_every_situational_tip_has_an_execution_path(self):
+        # the whole point of the feedback: don't just say "you could use X" —
+        # give the exact command/keystroke to act on. Each tip carries a "→" line.
+        prompts = ["let's start a new feature: profiles",
+                   "keep going until all tests pass",
+                   "find all usages across the whole codebase",
+                   "re-architect the reporting pipeline for scale"]
+        for p in prompts:
+            t = tip(p)
+            self.assertIsNotNone(t, p)
+            self.assertIn("→", t, p)  # an explicit do-this line
+            # and it names a concrete command/keyword, not just prose
+            self.assertTrue(any(tok in t for tok in
+                                ("/clear", "/goal", "/effort", "Shift+Tab", "subagents", "ultrathink")), p)
+
+    def test_hard_task_suggests_ultrathink_and_planning(self):
+        # ultrathink is a REAL inline keyword (deeper reasoning this turn) — the
+        # hard-task tip puts it right in the prompt, plus plan mode for big changes.
         t = tip("refactor and re-architect the reporting pipeline for scale")
         self.assertIsNotNone(t)
-        self.assertIn("plan mode", t.lower())
+        self.assertIn("ultrathink", t)
+        self.assertIn("Shift+Tab", t)
 
     def test_broad_suggests_subagents(self):
         t = tip("find all usages of the old API across the whole codebase")
@@ -52,29 +76,15 @@ class CcTipDetectionTest(unittest.TestCase):
             t = tip(prompt) or ""
             self.assertNotIn("/plan ", t)  # plan mode is Shift+Tab, not a /plan command
 
-    def test_ultrathink_redirects_to_effort(self):
-        # the "ultrathink" magic word is folklore — surface the correction, and
-        # only mention "ultrathink" in the context of debunking it.
-        for p in ["ultrathink this refactor", "please ultra think about the design",
-                  "turn on extended thinking and solve it", "megathink the algorithm"]:
-            t = tip(p)
-            self.assertIsNotNone(t, p)
-            self.assertIn("/effort", t)
-            self.assertIn("folklore", t.lower())
-
-    def test_ultrathink_myth_never_endorsed(self):
-        # if the word appears at all, it must be the debunk tip, never an endorsement
-        for p in ["ultrathink the migration", "ultra-think this"]:
-            t = tip(p) or ""
-            self.assertIn("no \"ultrathink\"", t.lower().replace("“", "\"").replace("”", "\""))
-
-    def test_normal_thinking_words_do_not_trip_ultrathink(self):
-        # ordinary English must not be mistaken for the magic-word attempt
-        # (the plan tip also mentions /effort, so assert on the debunk's unique word)
-        for p in ["think about the best data model then build the users table",
-                  "I think we should add pagination to the list endpoint"]:
+    def test_ultrathink_is_real_never_debunked(self):
+        # ultrathink is a real inline keyword (deeper reasoning this turn), NOT
+        # folklore — we must never tell users it doesn't exist.
+        for p in ["ultrathink the migration", "re-architect the whole pipeline",
+                  "debug this gnarly race condition"]:
             t = tip(p) or ""
             self.assertNotIn("folklore", t.lower())
+            self.assertNotIn("no \"ultrathink\"", t.lower())
+            self.assertNotIn("isn't real", t.lower())
 
 
 class CcCatalogTest(unittest.TestCase):
@@ -109,20 +119,19 @@ class CcCatalogTest(unittest.TestCase):
         out = cc_tips.catalog("nonsense")
         self.assertIn("No category", out)
 
-    def test_catalog_never_ships_ultrathink_as_a_feature(self):
-        # accuracy: ultrathink/think-hard must never be a standalone catalog entry
-        # (mentioning it inside the /effort entry to debunk it is fine and useful).
-        for f in cc_tips.FEATURES:
-            name = f["name"].lower()
-            self.assertNotIn("ultrathink", name)
-            self.assertNotIn("think harder", name)
-            self.assertNotIn("think hard", name)
-        # and wherever the word appears, it's framed as replaced/folklore, never endorsed
-        for f in cc_tips.FEATURES:
-            body = (f["use"] + " " + f["tradeoff"]).lower()
-            if "ultrathink" in body:
-                self.assertTrue("folklore" in body or "replaces" in body or "instead" in body,
-                                f"{f['name']} mentions ultrathink without debunking it")
+    def test_catalog_includes_ultrathink_and_ultracode(self):
+        # both are REAL inline keywords — they must be discoverable in the catalog,
+        # and must never be described as fake/folklore.
+        names = " | ".join(f["name"].lower() for f in cc_tips.FEATURES)
+        self.assertIn("ultrathink", names)
+        self.assertIn("ultracode", names)
+        blob = cc_tips.catalog().lower()
+        self.assertNotIn("folklore", blob)
+        self.assertNotIn("no \"ultrathink\"", blob)
+        # ultrathink is a Reasoning feature; ultracode is a Delegation feature
+        by = {f["name"].lower(): f["category"] for f in cc_tips.FEATURES}
+        self.assertEqual(next(v for k, v in by.items() if "ultrathink" in k), "Reasoning")
+        self.assertEqual(next(v for k, v in by.items() if "ultracode" in k), "Delegation")
 
     def test_catalog_command_runs(self):
         cli = Path(__file__).resolve().parent.parent / "bin" / "fixmyprompt"

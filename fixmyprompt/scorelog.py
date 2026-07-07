@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import re
 import time
-from pathlib import Path
 
 from . import config
 
@@ -83,7 +82,15 @@ def read(days: int | None = None) -> list[dict]:
                 rec = json.loads(line)
             except Exception:
                 continue
-            if rec.get("ts", 0) >= cutoff:
+            if not isinstance(rec, dict):
+                continue
+            # Normalize ts to a float here so every downstream consumer (report,
+            # progress, streak) is safe against a hand-corrupted log line.
+            try:
+                rec["ts"] = float(rec.get("ts", 0) or 0)
+            except (TypeError, ValueError):
+                rec["ts"] = 0.0
+            if rec["ts"] >= cutoff:
                 out.append(rec)
     except Exception:
         return out

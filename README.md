@@ -63,6 +63,102 @@ This installs the runtime to `~/.claude/fixmyprompt`, wires the `UserPromptSubmi
 
 Marketplace install: `/plugin update fixmyprompt@fixmyprompt`. Manual install: `git pull && ./install.sh`.
 
+## Claude Desktop & manual setup
+
+FixMyPrompt is a **Claude Code plugin** — it works through a `UserPromptSubmit` hook. Hooks are a Claude Code feature, so FixMyPrompt runs everywhere Claude Code runs, because they all share the same `~/.claude/settings.json`:
+
+| Where you use Claude | Runs FixMyPrompt? | Why |
+|---|---|---|
+| Claude Code **CLI** (terminal) | ✅ Yes | Reads `~/.claude/settings.json` |
+| Claude Code **desktop app** (Code tab) | ✅ Yes | Same settings file as the CLI |
+| Claude Code **IDE extensions** (VS Code / JetBrains) | ✅ Yes | Same settings file |
+| Standalone **Claude Desktop** chat app | ❌ No | That app uses MCP servers (`claude_desktop_config.json`), not hooks — FixMyPrompt is a hook, not an MCP server |
+
+> **In short:** use it in the **Claude Code desktop app** (or CLI/IDE). The one place it can't run is the separate Claude *Desktop* chat app, which has no hook system. If that's the only Claude app you use, FixMyPrompt won't apply to it.
+
+The easiest path is [Option A or B above](#install) — both wire everything for you. The steps below are for wiring it **by hand** (e.g. on the desktop app, or to see exactly what gets configured).
+
+### Step-by-step manual setup (the config JSON)
+
+1. **Get the code onto your machine** and into the runtime location the plugin expects:
+   ```bash
+   git clone https://github.com/harshivpgajjar/fixmyprompt.git ~/.claude/fixmyprompt
+   chmod +x ~/.claude/fixmyprompt/bin/coach_gate.py ~/.claude/fixmyprompt/bin/fixmyprompt
+   ```
+
+2. **Open your Claude Code settings file** (create it if it doesn't exist):
+   - macOS / Linux: `~/.claude/settings.json`
+   - Windows: `%USERPROFILE%\.claude\settings.json`
+
+3. **Add the `UserPromptSubmit` hook.** Merge this into the JSON (keep any hooks you already have — `UserPromptSubmit` is an array, so append to it rather than replacing):
+   ```json
+   {
+     "hooks": {
+       "UserPromptSubmit": [
+         {
+           "matcher": "",
+           "hooks": [
+             {
+               "type": "command",
+               "command": "python3 \"$HOME/.claude/fixmyprompt/bin/coach_gate.py\"",
+               "timeout": 20
+             }
+           ]
+         }
+       ]
+     }
+   }
+   ```
+   The `matcher: ""` means "every prompt"; the hook itself decides what (if anything) to coach, and **fails open** — if anything goes wrong it lets your prompt straight through, so it can never block you.
+
+4. **Turn coaching on** (it ships **off** — nothing intercepts your prompts until you opt in):
+   ```bash
+   ~/.claude/fixmyprompt/bin/fixmyprompt on
+   ```
+
+5. **Restart Claude Code** (or start a new session) so it re-reads `settings.json`. Send a deliberately vague prompt like `make the site responsive` — you should see FixMyPrompt step in before it's sent. Toggle off any time with `fixmyprompt off`.
+
+### Choosing a model *and* effort level
+
+Two independent dials control cost vs. capability — **model** (which brain) and **effort** (how hard it thinks). Set both to fit the task:
+
+**Model** — `/model <alias>` in a session (saved as your default), or the `"model"` key in `settings.json`, or the `ANTHROPIC_MODEL` env var (env wins if set):
+```json
+{ "model": "sonnet" }
+```
+Aliases: `haiku` (fastest/cheapest) · `sonnet` (default, most coding) · `opus` (deepest reasoning) · `opusplan` (Opus while planning, Sonnet to execute) · `default` (your account default). Add `[1m]` for a 1M-token context window, e.g. `opus[1m]`.
+
+**Effort** — `/effort <level>` in a session (persists across sessions, except `max`):
+
+| Level | Use for | Cost/time |
+|---|---|---|
+| `low` | simple edits, high-volume/mechanical work | cheapest, fastest |
+| `medium` | balanced everyday work | moderate |
+| `high` *(default)* | most coding & agentic tasks | mid |
+| `xhigh` | hard debugging / architecture | more thinking tokens + time |
+| `max` | one hardest problem (current session only) | maximum |
+
+> **Inline keywords, too:** put the word **`ultrathink`** in a prompt for deeper reasoning on that turn (Claude Code shows *"Deeper reasoning requested"*) — the zero-setup counterpart to `/effort`. Put **`ultracode`** in a prompt to kick off a **dynamic multi-agent workflow** for that turn (*"Dynamic workflow requested"*, `opt+w` to ignore).
+
+**Pick both at once, by task** (this is exactly what `fixmyprompt suggest "..."` recommends for any prompt):
+
+| Task | Model | Effort |
+|---|---|---|
+| Rename / typo / copy tweak | `haiku` | `low` |
+| Standard feature or bug fix | `sonnet` | `high` |
+| Design / "give me options" exploration | `sonnet` | `high` |
+| Refactor / re-architect / gnarly race condition | `opus` | `xhigh` |
+
+### Environment & auth
+
+- **No API key needed.** In the Claude Code desktop app (and CLI) you authenticate by logging into your subscription — the same login you already use. FixMyPrompt runs entirely on that; you never paste an `ANTHROPIC_API_KEY`. (If one *is* set in your environment, Claude Code will prefer it — unset it to stay on your subscription.)
+- **Setting env vars for hooks:** add an `"env"` block to `settings.json`; those variables are passed to hook scripts:
+  ```json
+  { "env": { "PCOACH_MODE": "always", "PCOACH_COOLDOWN": "90" } }
+  ```
+  FixMyPrompt reads its own config from `~/.claude/fixmyprompt/config.json`, but any `PCOACH_*` var overrides the matching config key (handy for a one-off session). See [Configuration](#configuration).
+- **Optional faster rewrites:** `fixmyprompt daemon on` runs a warm subscription-backed daemon for ~1.5s AI-written rewrites — still no API key. Leave it off and you get instant local scaffolds instead.
+
 ## Usage
 
 ```bash
@@ -93,8 +189,8 @@ Start here: run `fixmyprompt try "fix the login page"` to see the coach's judgme
 
 - **Tutorial mode** (`fixmyprompt tutorial on`): coaches *every* real prompt regardless of size/vagueness. Well-formed prompts get an **affirmation** ("Well-specified ✓ — done-state, constraints. Keep doing this") so you learn what good looks like, not just what's broken. Continuations/commands/pastes always stay silent.
 - **Model + effort suggestion**: every coaching output recommends the best-suited model + effort tier — mechanical edits → a small/cheap model, design/iteration → a mid-tier model, hard/architectural work → your top subscription model (with an optional note for stronger models you may have separate access to).
-- **Claude Code feature catalog** (`fixmyprompt features`): a browsable, grouped reference of the *built-in Claude Code features* that make you efficient — context (`/clear`, `/compact`, `/context`), reasoning (`/effort`, plan mode), model routing (`/model`), delegation (`subagents`, `/goal`, `/loop`, parallel agents), input (`@file`, vision/screenshots), output (`artifacts`), recovery (`/rewind`), memory (`CLAUDE.md`, `/memory`), sessions (`--resume`, `/branch`, `/export`), and diagnostics (`/usage`, `/permissions`). Each entry says **when to use it** and its **token/time trade-off**, so hidden features are discoverable and you pick the right tool for the task. Filter by category with `fixmyprompt features <category>`. (There is deliberately no "ultrathink" — that's folklore; use `/effort`.)
-- **Situational feature tips**: the coach also surfaces the single most relevant feature exactly when a prompt calls for it — **/clear or /compact** when you're starting new/unrelated work (a bloated context wastes tokens and degrades output), **/goal `<condition>`** for a big task with a verifiable finish line, **plan mode (Shift+Tab)** for architectural changes, **subagents** for broad multi-file work, and a redirect to **/effort** if you reach for the mythical "ultrathink". Preview any prompt's tip with `fixmyprompt tips "..."`.
+- **Claude Code feature catalog** (`fixmyprompt features`): a browsable, grouped reference of the *built-in Claude Code features* that make you efficient — context (`/clear`, `/compact`, `/context`), reasoning (`ultrathink`, `/effort`, plan mode), model routing (`/model`), delegation (`ultracode`, `subagents`, `/goal`, `/loop`, parallel agents), input (`@file`, vision/screenshots), output (`artifacts`), recovery (`/rewind`), memory (`CLAUDE.md`, `/memory`), sessions (`--resume`, `/branch`, `/export`), and diagnostics (`/usage`, `/permissions`). Each entry says **when to use it** and its **token/time trade-off**, so hidden features are discoverable and you pick the right tool for the task. Filter by category with `fixmyprompt features <category>`.
+- **Situational feature tips with an execution path**: the coach surfaces the single most relevant feature exactly when a prompt calls for it — and gives you the **exact thing to run**, not just "you could use X." Starting new work → `→ run /clear first`; a task with a finish line → the ready-to-paste `→ /goal all tests pass` (condition filled from your own words); broad multi-file work → `→ add "Use subagents…" to your prompt`; a hard/architectural task → `→ add the word ultrathink to your prompt`. Preview any prompt's tip with `fixmyprompt tips "..."`.
 - **Per-project hints**: `fixmyprompt project add` teaches the coach a clarifying question for a specific project/directory (e.g. "which app — mobile or web?"), which then gets baked into rewrites and scaffolds automatically when you're working in that directory.
 - **Acceptance-criteria memory**: the coach learns your recurring done-criteria from the rewrites you accept, and starts suggesting them proactively.
 - **Outcome tracking**: measures whether coached prompts actually lead to *fewer* follow-up corrections in the same session — proof the coaching helps, not just noise. Self-gating: it says "not enough data yet" honestly rather than overclaiming on a handful of samples.

@@ -7,10 +7,11 @@ Two jobs:
   2. SITUATIONAL tips surfaced during coaching (`analyze`) — when a prompt
      signals a specific situation, suggest the one most relevant feature.
 
-Every entry is verified against the current Claude Code docs (code.claude.com/
-docs) — no invented command names. Notably there is NO "ultrathink" magic word;
-it is folklore replaced by /effort, so we redirect that misconception instead of
-shipping it. Pure/deterministic; no I/O, no network.
+Entries reflect current Claude Code behavior — including inline keywords like
+`ultrathink` (deeper reasoning for a turn) and `ultracode` (a dynamic multi-agent
+workflow for a turn), which are real: typing them in a prompt makes Claude Code
+show "Deeper reasoning requested" / "Dynamic workflow requested". Pure/
+deterministic; no I/O, no network.
 """
 from __future__ import annotations
 
@@ -35,9 +36,12 @@ FEATURES: list[dict] = [
      "tradeoff": "Free, instant readout — tells you when it's time to /compact or /clear."},
 
     # --- Reasoning depth ---
+    {"name": "ultrathink (word in your prompt)", "category": "Reasoning",
+     "use": "Ask for deeper reasoning on a single turn — just put the word \"ultrathink\" in your prompt (Claude Code shows \"Deeper reasoning requested for this turn\").",
+     "tradeoff": "Spends more thinking tokens + time on that one turn; zero setup and doesn't persist, so it's ideal for a one-off hard step."},
     {"name": "/effort <low|medium|high|xhigh|max>", "category": "Reasoning",
-     "use": "Dial reasoning to the task: low for simple/high-volume work, xhigh/max for the hardest problems (high is the default). This replaces the folklore 'ultrathink'.",
-     "tradeoff": "Higher levels spend more thinking tokens + time for better answers; lower is faster and cheaper. Persists across sessions (max lasts only the current one)."},
+     "use": "Dial reasoning to the task and make it STICK: low for simple/high-volume work, xhigh/max for the hardest problems (high is the default).",
+     "tradeoff": "Higher levels spend more thinking tokens + time for better answers; lower is faster and cheaper. Persists across sessions (max lasts only the current one) — the persistent counterpart to a one-off `ultrathink`."},
     {"name": "Plan mode (Shift+Tab)", "category": "Reasoning",
      "use": "Explore the code and agree on an approach BEFORE any edits.",
      "tradeoff": "Costs a planning round up front; saves the far larger cost of undoing wrong changes."},
@@ -48,6 +52,9 @@ FEATURES: list[dict] = [
      "tradeoff": "Cheaper models save tokens+time at lower capability; premium models cost more but reason better. Switching itself is free."},
 
     # --- Delegation & parallelism ---
+    {"name": "ultracode (word in your prompt)", "category": "Delegation",
+     "use": "Trigger a dynamic multi-agent workflow for a turn — put the word \"ultracode\" in your prompt (Claude Code shows \"Dynamic workflow requested for this turn\", opt+w to ignore).",
+     "tradeoff": "Spawns multiple agents — the highest token cost, but the most thorough and parallel path for big audits, migrations, or reviews."},
     {"name": "Subagents (\"use a subagent to …\")", "category": "Delegation",
      "use": "A verbose side task (research, log analysis, verification) that would flood your main thread with output you won't reuse.",
      "tradeoff": "Keeps your main context lean — only the summary returns; spends tokens on the subagent's own context in exchange."},
@@ -117,15 +124,6 @@ _CATEGORY_ORDER = ["Context", "Reasoning", "Model", "Delegation", "Input",
 # well-formed prompt (True) vs only ride along when the gate already coaches.
 # --------------------------------------------------------------------------
 
-# The "ultrathink" myth: a magic-word attempt to force deeper thinking. It isn't
-# real — redirect to /effort. Matched narrowly so normal English ("think about
-# the design") never trips it.
-_ULTRATHINK = re.compile(
-    r"\b(?:ultra[- ]?think(?:ing)?|mega[- ]?think(?:ing)?|"
-    r"think (?:harder|hard|deeply|really hard) mode|"
-    r"(?:use|enable|turn on) (?:extended |deep )?thinking(?: mode)?)\b",
-    re.IGNORECASE,
-)
 _NEW_WORK = re.compile(
     r"\b(?:"
     r"new feature|add(?:ing)? (?:a |another )?new (?:\w+ ){0,3}?feature|"
@@ -160,38 +158,67 @@ _BROAD = re.compile(
     re.IGNORECASE,
 )
 
-_TIP_ULTRATHINK = (
-    "💡 There's no \"ultrathink\" magic word in Claude Code — that's folklore. "
-    "Use /effort xhigh (or /effort max for a single hardest task) to actually dial up reasoning."
-)
+# Every tip ends with a "→ do this" line carrying the EXACT command/keystroke to
+# run — an execution path, not just "you could use X". The goal tip fills the
+# finish condition from the user's own words so they can paste it verbatim.
 _TIP_NEW_WORK = (
-    "💡 Starting new/unrelated work? Run /clear first (or /compact to keep a summary). "
-    "Claude's output degrades as the context fills — a fresh start saves tokens and avoids sloppy results."
-)
-_TIP_BIG_GOAL = (
-    "💡 Big task with a clear finish line? Try /goal <condition> "
-    "(e.g. /goal all tests pass) — Claude keeps working until it's actually met."
+    "💡 Starting new/unrelated work? A bloated context wastes tokens and degrades output.\n"
+    "→ run  /clear  first (or  /compact  to keep a summary), then send your prompt."
 )
 _TIP_PLAN = (
-    "💡 Big or architectural change? Toggle plan mode (Shift+Tab) first, or raise "
-    "reasoning with /effort high — so Claude proposes the approach before editing."
+    "💡 Hard/architectural task? Give it deeper reasoning — right in your prompt.\n"
+    "→ add the word  ultrathink  to your prompt for deeper reasoning this turn "
+    "(or  /effort xhigh  to make it persist); for big changes, press Shift+Tab first to plan before editing."
 )
 _TIP_BROAD = (
-    "💡 Broad or multi-part? Ask Claude to \"use subagents\" to fan the work out "
-    "and keep your main context clean."
+    "💡 Broad or multi-part work runs faster fanned out — and keeps your main context clean.\n"
+    "→ add this line to your prompt:  \"Use subagents to work on these in parallel.\""
 )
+
+# Pull the finish condition out of the user's own words so the /goal line is
+# paste-ready, not a <placeholder>.
+_GOAL_COND = re.compile(
+    r"(?:keep (?:going|working)\s+)?(?:until|till)\s+(.+?)(?:[.;,]|$)",
+    re.IGNORECASE,
+)
+_VAGUE_COND = {"everything", "done", "complete", "finished", "it", "it's done", "its done"}
+
+
+def _goal_condition(prompt: str) -> str:
+    """The concrete finish condition for a /goal line, derived from the prompt."""
+    m = _GOAL_COND.search(prompt)
+    if m:
+        cond = m.group(1).strip().rstrip(".!?,;:").strip()
+        if 3 <= len(cond) <= 60 and cond.lower() not in _VAGUE_COND:
+            return cond
+    low = prompt.lower()
+    if "test" in low:
+        return "all tests pass"
+    if "end-to-end" in low or "end to end" in low:
+        return "it works end-to-end"
+    return "it's fully working and verified"
+
+
+def _tip_big_goal(prompt: str) -> str:
+    cond = _goal_condition(prompt)
+    return (
+        "💡 This has a clear finish line — let Claude self-verify instead of you re-checking.\n"
+        f"→ run this first, then send your prompt:  /goal {cond}"
+    )
 
 
 def analyze(prompt: str, features: dict) -> dict | None:
-    """Return the single most relevant Claude Code feature tip, or None."""
+    """Return the single most relevant Claude Code feature tip, or None.
+
+    Each tip carries an execution path (the exact command/keystroke to use), so
+    the user can act on it immediately rather than merely learn it exists.
+    """
     prompt = prompt or ""
-    # priority: ultrathink myth > new-work > big-goal > broad (→ subagents) > hard (→ plan).
-    if _ULTRATHINK.search(prompt):
-        return {"tip": _TIP_ULTRATHINK, "engage": True}
+    # priority: new-work > big-goal > broad (→ subagents) > hard (→ ultrathink/plan).
     if _NEW_WORK.search(prompt):
         return {"tip": _TIP_NEW_WORK, "engage": True}
     if _BIG_GOAL.search(prompt):
-        return {"tip": _TIP_BIG_GOAL, "engage": True}
+        return {"tip": _tip_big_goal(prompt), "engage": True}
     if _BROAD.search(prompt):
         return {"tip": _TIP_BROAD, "engage": False}
     try:

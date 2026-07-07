@@ -1,0 +1,14 @@
+{
+  "name": "fixmyprompt",
+  "owner": {
+    "name": "Harshiv Gajjar",
+    "email": "harshivpgajjar@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "fixmyprompt",
+      "source": "./",
+      "description": "A prompt coach for Claude Code — refines your prompt at submit time, teaches better prompting, and measures your improvement over time. Fully subscription-based, no API key required."
+    }
+  ]
+}

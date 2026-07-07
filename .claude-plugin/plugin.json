@@ -1,7 +1,14 @@
 {
   "name": "fixmyprompt",
-  "version": "0.1.0",
-  "description": "A prompt coach for Claude Code — refines your prompt at submit time, teaches better prompting, and measures your improvement over time. Mode-aware (never touches intentional exploration) and voice-preserving.",
-  "author": "Harshiv Gajjar",
-  "keywords": ["prompt", "coach", "refine", "productivity", "prompt-engineering"]
+  "displayName": "FixMyPrompt",
+  "version": "1.0.0",
+  "description": "A prompt coach for Claude Code — refines your prompt at submit time, teaches better prompting, and measures your improvement over time. Mode-aware (never touches intentional exploration) and voice-preserving. Fully subscription-based, no API key required.",
+  "author": {
+    "name": "Harshiv Gajjar",
+    "url": "https://github.com/harshivpgajjar"
+  },
+  "homepage": "https://github.com/harshivpgajjar/fixmyprompt",
+  "repository": "https://github.com/harshivpgajjar/fixmyprompt",
+  "license": "MIT",
+  "keywords": ["prompt", "coach", "refine", "productivity", "prompt-engineering", "teaching"]
 }

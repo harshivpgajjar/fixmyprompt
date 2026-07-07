@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-MEDICOZ_HINT = "which app — provider or user?"
+SHOP_HINT = "which storefront — web or mobile app?"
 
 
 class ContextHintsTest(unittest.TestCase):
@@ -33,10 +33,12 @@ class ContextHintsTest(unittest.TestCase):
         self.assertEqual(crits, self.ch.DEFAULT_CRITERIA)
         self.assertIn("no horizontal scroll at 390px", crits)
         self.assertTrue((Path(self.tmp) / "criteria.json").exists())
+        # projects.json ships empty — it's a learned store, not a preset list
         self.ch.project_hint("/anywhere")  # first read seeds projects.json
         self.assertTrue((Path(self.tmp) / "projects.json").exists())
         seeded = json.loads((Path(self.tmp) / "projects.json").read_text())
-        self.assertEqual(seeded, self.ch.DEFAULT_PROJECTS)
+        self.assertEqual(seeded, {})
+        self.assertEqual(self.ch.DEFAULT_PROJECTS, {})
 
     def test_seeding_is_idempotent_and_preserves_edits(self):
         self.ch.known_criteria()
@@ -46,57 +48,89 @@ class ContextHintsTest(unittest.TestCase):
         # a valid store is respected, not re-seeded over
         self.assertEqual(self.ch.known_criteria(), ["my own bar"])
 
-    def test_corrupt_stores_reseed(self):
+    def test_corrupt_criteria_store_reseeds_to_defaults(self):
         (Path(self.tmp) / "criteria.json").write_text("{not json")
-        (Path(self.tmp) / "projects.json").write_text("[]")  # wrong shape
         self.assertEqual(self.ch.known_criteria(), self.ch.DEFAULT_CRITERIA)
-        self.assertEqual(self.ch.project_hint("/Users/harshiv/Desktop/Medicoz"), MEDICOZ_HINT)
 
-    # --- project_hint ------------------------------------------------------
+    def test_corrupt_projects_store_reseeds_to_empty(self):
+        self.ch.add_project_hint("shop", SHOP_HINT)
+        self.assertEqual(self.ch.project_hint("/Users/x/Desktop/Shop"), SHOP_HINT)
+        (Path(self.tmp) / "projects.json").write_text("[]")  # wrong shape
+        # honest behavior: a corrupt store re-seeds to the empty default —
+        # the previously-learned hint is gone, not silently recovered.
+        self.assertEqual(self.ch.list_project_hints(), {})
+        self.assertIsNone(self.ch.project_hint("/Users/x/Desktop/Shop"))
 
-    def test_project_hint_matches_known_dirs(self):
+    # --- project hint management (add/remove/list) --------------------------
+
+    def test_add_list_remove_project_hint(self):
+        self.assertEqual(self.ch.list_project_hints(), {})
+        self.assertTrue(self.ch.add_project_hint("shop", SHOP_HINT))
+        self.assertEqual(self.ch.list_project_hints(), {"shop": SHOP_HINT})
+        self.assertTrue(self.ch.remove_project_hint("shop"))
+        self.assertEqual(self.ch.list_project_hints(), {})
+        self.assertFalse(self.ch.remove_project_hint("shop"))  # already gone
+
+    def test_add_project_hint_rejects_blank_input(self):
+        self.assertFalse(self.ch.add_project_hint("", "a hint"))
+        self.assertFalse(self.ch.add_project_hint("key", ""))
+        self.assertFalse(self.ch.add_project_hint("  ", "  "))
+
+    # --- project_hint matching -----------------------------------------------
+
+    def test_project_hint_matches_added_dirs(self):
+        self.ch.add_project_hint("shop", SHOP_HINT)
         self.assertEqual(
-            self.ch.project_hint("/Users/harshiv/Desktop/Medicoz Prelaunch Website"),
-            MEDICOZ_HINT,
+            self.ch.project_hint("/Users/x/Desktop/Shop Redesign"),
+            SHOP_HINT,
         )
+
+    def test_project_hint_separator_folding(self):
+        # dir name with dashes matches a spaced multi-word key
+        self.ch.add_project_hint("acme studio", "which client brief?")
         self.assertEqual(
-            self.ch.project_hint("/Users/harshiv/Desktop/GoaSorted"),
-            self.ch.DEFAULT_PROJECTS["goasorted"],
+            self.ch.project_hint("/Users/x/Desktop/Acme-Studio"),
+            "which client brief?",
         )
-        # separator folding: dir name with dashes matches the spaced key
-        self.assertEqual(
-            self.ch.project_hint("/Users/harshiv/Desktop/Education-for-AI"),
-            self.ch.DEFAULT_PROJECTS["education for ai"],
-        )
+
+    def test_project_hint_compact_camelcase_match(self):
         # compact CamelCase dir matches a multi-word key
+        self.ch.add_project_hint("acme studio", "which client brief?")
         self.assertEqual(
-            self.ch.project_hint("/Users/harshiv/Desktop/SwiftMoney"),
-            self.ch.DEFAULT_PROJECTS["swift money"],
+            self.ch.project_hint("/Users/x/Desktop/AcmeStudio"),
+            "which client brief?",
         )
 
     def test_project_hint_unknown_and_empty(self):
-        self.assertIsNone(self.ch.project_hint("/Users/harshiv/Desktop/some-unknown-dir"))
+        self.assertIsNone(self.ch.project_hint("/Users/x/Desktop/some-unknown-dir"))
         self.assertIsNone(self.ch.project_hint(None))
         self.assertIsNone(self.ch.project_hint(""))
 
     def test_project_hint_word_boundaries_prevent_false_positives(self):
-        # "room" must not fire inside "Bathroom"
-        self.assertIsNone(self.ch.project_hint("/Users/harshiv/Desktop/Bathroom-remodel"))
+        # a single-word key like "shop" needs a real word boundary: it must
+        # match its own path segment but never fire inside a compound word
+        # like "Workshop" (no boundary between "work" and "shop").
+        self.ch.add_project_hint("shop", SHOP_HINT)
+        self.assertIsNone(self.ch.project_hint("/Users/x/Desktop/Workshop-notes"))
         self.assertEqual(
-            self.ch.project_hint("/Users/harshiv/Desktop/Room"),
-            self.ch.DEFAULT_PROJECTS["room"],
+            self.ch.project_hint("/Users/x/Desktop/Shop"),
+            SHOP_HINT,
         )
 
     def test_project_hint_absolute_path_key(self):
-        self.ch.project_hint("/anywhere")  # seed first
-        path = Path(self.tmp) / "projects.json"
-        data = json.loads(path.read_text())
-        data["/Users/harshiv/Clients/acme"] = "which campaign?"
-        path.write_text(json.dumps(data, ensure_ascii=False))
+        self.ch.add_project_hint("/Users/x/Clients/acme", "which campaign?")
         self.assertEqual(
-            self.ch.project_hint("/Users/harshiv/Clients/acme/site"), "which campaign?"
+            self.ch.project_hint("/Users/x/Clients/acme/site"), "which campaign?"
         )
-        self.assertIsNone(self.ch.project_hint("/Users/harshiv/Clients/other"))
+        self.assertIsNone(self.ch.project_hint("/Users/x/Clients/other"))
+
+    def test_project_hint_longest_key_wins(self):
+        self.ch.add_project_hint("acme", "generic acme question")
+        self.ch.add_project_hint("acme studio", "specific acme-studio question")
+        self.assertEqual(
+            self.ch.project_hint("/Users/x/Desktop/Acme Studio Site"),
+            "specific acme-studio question",
+        )
 
     # --- learn_criteria ------------------------------------------------------
 
@@ -144,8 +178,9 @@ class ContextHintsTest(unittest.TestCase):
     # --- context_block -------------------------------------------------------
 
     def test_context_block_known_cwd_has_hint_and_criteria(self):
-        block = self.ch.context_block("/Users/harshiv/Desktop/Medicoz Prelaunch Website")
-        self.assertIn("Project context: " + MEDICOZ_HINT, block)
+        self.ch.add_project_hint("shop", SHOP_HINT)
+        block = self.ch.context_block("/Users/x/Desktop/Shop Redesign")
+        self.assertIn("Project context: " + SHOP_HINT, block)
         self.assertIn("no horizontal scroll at 390px", block)
 
     def test_context_block_none_cwd_still_lists_criteria(self):
@@ -170,11 +205,12 @@ class ContextHintsTest(unittest.TestCase):
     # --- scaffold_extra -------------------------------------------------------
 
     def test_scaffold_extra(self):
+        self.ch.add_project_hint("shop", SHOP_HINT)
         self.assertEqual(
-            self.ch.scaffold_extra("/Users/harshiv/Desktop/GoaSorted"),
-            "+ Project: " + self.ch.DEFAULT_PROJECTS["goasorted"],
+            self.ch.scaffold_extra("/Users/x/Desktop/Shop Redesign"),
+            "+ Project: " + SHOP_HINT,
         )
-        self.assertIsNone(self.ch.scaffold_extra("/Users/harshiv/Desktop/unknown-place"))
+        self.assertIsNone(self.ch.scaffold_extra("/Users/x/Desktop/unknown-place"))
         self.assertIsNone(self.ch.scaffold_extra(None))
 
 

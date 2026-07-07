@@ -19,3 +19,4 @@ RESEARCH-*.md
 # context-hints runtime stores (seeded per user)
 criteria.json
 projects.json
+HANDOFF.md

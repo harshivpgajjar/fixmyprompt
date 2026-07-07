@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fixmyprompt import config, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
+from fixmyprompt import config, context_hints, daemon, outcome, refiner, report, scorer, suggest  # noqa: E402
 
 _LAUNCH_AGENT = Path(os.path.expanduser("~")) / "Library" / "LaunchAgents" / "com.fixmyprompt.daemon.plist"
 
@@ -92,6 +92,34 @@ def cmd_tutorial(args):
         return
     config.save({"tutorial": args[0] == "on"})
     print(f"FixMyPrompt tutorial mode: {args[0].upper()} (applies to new sessions).")
+
+
+def cmd_project(args):
+    """Manage per-project clarifying hints (fixmyprompt project add/list/remove)."""
+    sub = args[0] if args else "list"
+    if sub == "list":
+        hints = context_hints.list_project_hints()
+        if not hints:
+            print("No project hints yet. Add one with:")
+            print('  fixmyprompt project add "<name-or-path-substring>" "<clarifying question>"')
+            return
+        for key, hint in hints.items():
+            print(f"  {key!r:30} -> {hint}")
+    elif sub == "add":
+        if len(args) < 3:
+            print('usage: fixmyprompt project add "<name-or-path-substring>" "<clarifying question>"')
+            return
+        key, hint = args[1], " ".join(args[2:])
+        ok = context_hints.add_project_hint(key, hint)
+        print(f"{'added' if ok else 'failed to add'}: {key!r} -> {hint!r}")
+    elif sub in ("remove", "rm"):
+        if len(args) < 2:
+            print("usage: fixmyprompt project remove <name-or-path-substring>")
+            return
+        ok = context_hints.remove_project_hint(args[1])
+        print("removed" if ok else f"no such hint: {args[1]!r}")
+    else:
+        print("usage: fixmyprompt project <list|add|remove>")
 
 
 def cmd_status(_args):
@@ -383,6 +411,7 @@ COMMANDS = {
     "progress": cmd_progress,
     "suggest": cmd_suggest,
     "tutorial": cmd_tutorial,
+    "project": cmd_project,
     "digest": cmd_digest,
     "digest-schedule": cmd_digest_schedule,
     "status": cmd_status,

@@ -43,18 +43,11 @@ DEFAULT_CRITERIA = [
 # boundaries; "-"/"_" fold to spaces, so "Education-for-AI" matches
 # "education for ai"). A key starting with "/" or "~" is an absolute path
 # prefix instead. value: the clarifying question worth asking in that project.
-DEFAULT_PROJECTS = {
-    "medicoz": "which app — provider or user?",
-    "education for ai": "which piece — the grader pipeline or the student companion? which model?",
-    "slacker": "which agent/service?",
-    "goasorted": "which page or section of the site?",
-    "vanta": "which page, and does the brand spec apply?",
-    "portfolio": "which project entry or page?",
-    "fixmyprompt": "which piece — gate hook, refiner, daemon, or CLI?",
-    "swift money": "which screen or money flow?",
-    "sift": "which feed or filter?",
-    "room": "which screen or view?",
-}
+#
+# Ships empty — this is a per-user LEARNED store, not a preloaded list of
+# someone else's projects. Populate it with:
+#   fixmyprompt project add <name-or-path-substring> "<clarifying question>"
+DEFAULT_PROJECTS: dict[str, str] = {}
 
 _CRITERIA_CAP = 25       # learned list never grows past this; oldest drop first
 _BLOCK_CRITERIA = 6      # how many criteria context_block() surfaces
@@ -183,6 +176,45 @@ def project_hint(cwd: str | None) -> str | None:
         return best[1] if best else None
     except Exception:
         return None
+
+
+def list_project_hints() -> dict[str, str]:
+    """The current project→hint map (seeded on first read). Never raises."""
+    try:
+        return dict(_load_projects())
+    except Exception:
+        return {}
+
+
+def add_project_hint(key: str, hint: str) -> bool:
+    """Add or update a project hint. Returns True on success (fail-open: False
+    on bad input or a write error, never raises)."""
+    key, hint = (key or "").strip(), (hint or "").strip()
+    if not key or not hint:
+        return False
+    try:
+        projects = _load_projects()
+        projects[key] = hint
+        _write_json(_projects_path(), projects)
+        return True
+    except Exception:
+        return False
+
+
+def remove_project_hint(key: str) -> bool:
+    """Remove a project hint by its exact key. Returns True if it existed."""
+    key = (key or "").strip()
+    if not key:
+        return False
+    try:
+        projects = _load_projects()
+        if key not in projects:
+            return False
+        del projects[key]
+        _write_json(_projects_path(), projects)
+        return True
+    except Exception:
+        return False
 
 
 # --- criteria memory ------------------------------------------------------------

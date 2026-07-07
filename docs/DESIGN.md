@@ -1,14 +1,14 @@
-# FixMyPrompt — a prompt coach for Claude Code
-*Spec v0.2 · 2026-07-05. Working name "FixMyPrompt" (it sharpens the user, not just the prompt). Alts: Hone, Muse, Prompt Coach.*
+# Design notes: FixMyPrompt — a prompt coach for Claude Code
+*Design rationale from the original build, kept for contributors. Not required reading to use the plugin — see the root README for that.*
 
-> **STATUS: BUILT & INSTALLED (2026-07-05).** All three phases shipped in one pass. 88/88 tests green (stdlib unittest); scorer and Coach Gate hardened + mutation-tested by Fable 5 subagents; every hook branch live-verified. Installed to `~/.claude/fixmyprompt`, hook wired into settings.json (coaching **off** by default — `fixmyprompt on` to enable), `/refine` skill live, 911 real prompts backfilled into the report, weekly self-audit now emits a Prompting section. See README.md for usage.
+> **STATUS: shipped and open-sourced.** All three phases below are built. 197+ tests green (stdlib unittest); scorer and Coach Gate mutation-tested; every hook branch live-verified. See README.md for install and usage.
 
 ## Problem
-Prompt quality is the biggest lever most Claude Code users have left, and nobody teaches it. Existing "prompt enhancers" rewrite one prompt and create dependence — they never build the skill. The gap between a user's best prompt and their worst is enormous (for the primary user: a full written spec that shipped a product in 3 days, vs. "i love tide, perfect it"). Close that gap by **teaching, in the flow, without friction** — and measure the improvement over time.
+Prompt quality is the biggest lever most Claude Code users have left, and nobody teaches it. Existing "prompt enhancers" rewrite one prompt and create dependence — they never build the skill. The gap between a person's best prompt and their worst is often enormous (a full written spec that ships a product in three days, vs. "make it better, you know what I mean"). Close that gap by **teaching, in the flow, without friction** — and measure the improvement over time.
 
 ## Users
-- **v1 (me-first):** Harshiv — voice-dictates, works in explore→execute cycles, has a recorded taste file. Tune hard to this.
-- **v3 (everyone):** any Claude Code user, via a configurable distributable plugin.
+- **v1 (build target for the initial author):** a power user who voice-dictates, works in explore→execute cycles, and wants the coach tuned hard to real usage first.
+- **v3 (everyone):** any Claude Code user, via a configurable, open-source, distributable plugin — this is that v3.
 
 ## Core principles (non-negotiable)
 1. **Teach > rewrite.** The goal is that the user needs the tool *less* over time. Every intervention carries at most ONE teaching point.
@@ -17,7 +17,7 @@ Prompt quality is the biggest lever most Claude Code users have left, and nobody
 4. **Preserve voice.** Add operational scaffolding (mode, constraints, "done means…"); never convert Hinglish/voice-dictation into corporate prompt-ese. Intent in, scaffolding added, personality kept.
 5. **Always bypassable.** A prefix (`!` / `raw:`) and a global toggle. Friction is the thing that gets plugins uninstalled.
 
-## Hard technical constraints (verified 2026-07-05 via claude-code-guide)
+## Hard technical constraints (verified via Claude Code docs)
 - `UserPromptSubmit` hook CAN: read the prompt, block it with a visible `systemMessage`, inject hidden `additionalContext`. It runs synchronously (or `async:true`+`asyncRewake:true` to not block).
 - It CANNOT: rewrite the prompt, or put editable refined text into the input line for pre-send review. (`updatedInput` exists only on `PreToolUse`.)
 - No native prompt-refiner ships in Claude Code.
@@ -44,7 +44,7 @@ The literal dream (edit text in place) is impossible — no hook API can pre-fil
 
 **Silence gates (all local, ~0ms, never nag):** pass straight through if the prompt starts with `/ ! #`, is <12 words, matches a continuation regex (`yes/ok/go/continue/do it/…`), looks like a pasted log/code block, or the session was coached in the last N minutes. Then Haiku's own `needs_refinement:false` suppresses the block on already-good long prompts — so the gate only appears when there's a genuinely better version to offer.
 
-**Refiner:** `claude-haiku-4-5` via curl, structured JSON out (`{needs_refinement, refined}`), fail-open on any error/timeout (prompt just sends normally — the coach can never lock you out). ~0.8–2.5s only on coached prompts (~20%); ~$0.002–0.005 each (pennies). Reads `core.md` + `design-taste.md` so refinement is voice- and taste-aware, and mode-aware (never "fixes" an explore prompt).
+**Refiner:** subscription-native by default (a warm `claude` daemon, or the API path if you set a key), fail-open on any error/timeout (prompt just sends normally — the coach can never lock you out). Optionally reads `~/.claude/memory/core.md` and `design-taste.md` if present (Claude Code's own memory convention) so refinement is voice- and taste-aware where that data exists, and is mode-aware everywhere (never "fixes" an explore prompt).
 
 **The tmux tier (opt-in `PCOACH_INJECT=1`) — the actual dream:** if you run Claude Code inside tmux, after the block the hook fires `tmux set-buffer` + `paste-buffer -p` targeted at your pane — the refined text **materializes in your input line, editable, ~0.5s after you hit Enter.** Pane-targeted (survives cmd-tab), bracketed-paste (multi-line safe), no macOS permission prompts. Clipboard is the fallback if the redraw race misses. (iTerm2 AppleScript and a guarded single ⌘V via System Events are lower tiers for non-tmux setups.)
 
@@ -52,8 +52,8 @@ The literal dream (edit text in place) is impossible — no hook API can pre-fil
 
 **Rejected:** a PTY wrapper around the `claude` binary (the only path to literal in-place editing) — re-implements the whole line editor, breaks on every UI update, corrupts input on failure. tmux paste-buffer gives ~90% of it at ~2% of the risk.
 
-### Phase 3 — Distributable "FixMyPrompt" plugin (for people everywhere)
-- Strip personal files → generic default rubric + taste template. Aggressiveness as a setting (`off` / `gentle` / `assertive`). Package per the verified plugin structure; ship a marketplace entry. Bundles its own weekly prompt-quality report.
+### Phase 3 — Distributable "FixMyPrompt" plugin (for people everywhere) — DONE
+Personal seeds stripped (criteria/project stores ship empty and are user-populated via `fixmyprompt project add`); packaged with `.claude-plugin/plugin.json` + `marketplace.json` for `/plugin install`; MIT licensed; public repo. Bundles its own weekly prompt-quality report.
 
 ## Non-goals
 - Not an inline text editor (the tool can't do it — don't fake it).
@@ -73,6 +73,6 @@ The literal dream (edit text in place) is impossible — no hook API can pre-fil
 - **Token cost:** Haiku, and only when the local gate engages.
 - **Over-refining discovery:** mode-awareness is a first-class requirement, tested explicitly.
 
-## Open questions
-- Phase 2 default: block-and-suggest (visible, teaches, small friction) vs. silent-context-injection (invisible, better outcomes, no teaching) — probably offer both, default block-and-suggest only for the highest-value gaps.
-- Name: FixMyPrompt / Hone / Muse / Prompt Coach.
+## Resolved design decisions
+- Both block-and-suggest AND silent-context-injection shipped, as separate modes (`mode always` vs `mode whisper`) rather than picking one — different users want different tradeoffs between friction and teaching.
+- Name settled on **FixMyPrompt**.

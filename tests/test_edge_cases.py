@@ -296,6 +296,46 @@ class DaemonCapabilityTest(unittest.TestCase):
             daemon.DAEMON_SUPPORTED = orig
 
 
+class SystemInjectedTest(unittest.TestCase):
+    """Background-agent task-notifications, system-reminders, and slash-command
+    output reach the UserPromptSubmit hook as "prompts" the user never typed.
+    The coach must pass them straight through — never block/coach them."""
+
+    def _gate(self, prompt):
+        home = tempfile.mkdtemp()
+        (Path(home) / "config.json").write_text('{"mode":"always","tutorial":true}')
+        env = {**os.environ, "FIXMYPROMPT_HOME": home, "PCOACH_COOLDOWN": "0",
+               "ANTHROPIC_API_KEY": "", "PATH": os.path.join(home, "nobin")}
+        return subprocess.run([sys.executable, str(GATE)],
+                              input=json.dumps({"prompt": prompt, "session_id": "s"}),
+                              capture_output=True, text=True, env=env).stdout.strip()
+
+    def test_system_injected_prompts_pass_through(self):
+        for p in [
+            "<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>\n"
+            "<result>Build the app yourself in Next.js. Here is the report.</result>\n</task-notification>",
+            "<system-reminder>\nUse this context. build a dashboard.\n</system-reminder>",
+            "[SYSTEM NOTIFICATION - NOT USER INPUT]\nAutomated event. make me a thing.",
+            "<command-name>/model</command-name>\n<command-message>model</command-message>",
+        ]:
+            self.assertEqual(self._gate(p), "", f"system prompt was coached: {p[:40]}")
+
+    def test_real_prompt_that_merely_mentions_the_words_still_coaches(self):
+        # a genuine build prompt using 'notification'/'task' in prose is NOT a
+        # system message — it must still be coached.
+        out = self._gate("build a system that sends a notification when a task finishes")
+        self.assertTrue(out)
+        self.assertEqual(json.loads(out).get("decision"), "block")
+
+    def test_is_system_injected_unit(self):
+        cg = _load_gate_module()
+        self.assertTrue(cg._is_system_injected("<task-notification>\n..."))
+        self.assertTrue(cg._is_system_injected("  <system-reminder> ..."))
+        self.assertTrue(cg._is_system_injected("[SYSTEM NOTIFICATION - NOT USER INPUT]"))
+        self.assertFalse(cg._is_system_injected("send a task-notification email to the user"))
+        self.assertFalse(cg._is_system_injected("build me a dashboard"))
+
+
 class ScaffoldStagingTest(unittest.TestCase):
     """A scaffold block must offer a REAL send affordance (clipboard, or an
     honest 'retype') — never a bare 'press ⏎ to send' that does nothing because

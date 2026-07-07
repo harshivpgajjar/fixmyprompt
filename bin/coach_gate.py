@@ -354,6 +354,23 @@ def _read_stdin() -> dict:
         return {}
 
 
+# Markers of a SYSTEM-INJECTED submission — a background-agent task-notification,
+# a system-reminder, or slash-command output that Claude Code delivers to the
+# UserPromptSubmit hook as if it were a prompt. The user didn't type these, so
+# the coach must never touch them. Matched near the start (where these tags
+# always appear) to avoid catching a user who merely mentions the words.
+_SYSTEM_MARKERS = (
+    "<task-notification", "</task-notification", "<system-reminder",
+    "[system notification", "<local-command-stdout", "<local-command-stderr",
+    "<command-name>", "<command-message>", "<command-args>",
+)
+
+
+def _is_system_injected(prompt: str) -> bool:
+    head = (prompt or "")[:600].lower()
+    return any(m in head for m in _SYSTEM_MARKERS)
+
+
 def _refine(body: str, cfg: dict, cwd: str | None = None) -> dict:
     # test seam — active ONLY when FIXMYPROMPT_FAKE_REFINE is set (never set in
     # production; when unset this function is exactly refiner.refine).
@@ -389,6 +406,12 @@ def main() -> None:
         prompt = data.get("prompt")
         if not isinstance(prompt, str):
             prompt = ""
+        # SYSTEM-INJECTED GUARD (before touching any state): background-agent
+        # task-notifications, system-reminders, and slash-command output arrive
+        # at this hook as "prompts" the user never typed. Pass them straight
+        # through — never coach, never consume the one-shot pending flag.
+        if _is_system_injected(prompt):
+            sys.exit(0)
         has_attachment = _has_attachment(data, prompt)
         # Opt-in diagnostic (off by default): record the stdin keys + whether an
         # image was detected, so the exact attachment wire format can be

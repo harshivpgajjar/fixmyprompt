@@ -15,6 +15,7 @@ fails open and emits valid-JSON-or-empty on every path).
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 
@@ -29,9 +30,29 @@ def _safe(session_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", session_id or "nosession")[:128]
 
 
+def _chmod(path, mode: int) -> None:
+    # No-op on Windows/unsupported FS (which uses ACLs, not POSIX bits) — harmless.
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
+
+
+def _secure_write(path, text: str) -> None:
+    """Write owner-only. These files hold the user's in-flight PROMPT text, so on
+    a shared host they must not be world-readable."""
+    path.write_text(text)
+    _chmod(path, 0o600)
+
+
 def _ensure() -> None:
     PENDING_DIR.mkdir(parents=True, exist_ok=True)
     COOLDOWN_DIR.mkdir(parents=True, exist_ok=True)
+    # Owner-only dirs: a 0700 dir blocks other local users from reaching any file
+    # inside it (they can't traverse it), protecting the pending/cooldown/backstop
+    # files and the prompt log regardless of individual file modes.
+    for d in (config.RUNTIME_DIR, PENDING_DIR, COOLDOWN_DIR):
+        _chmod(d, 0o700)
 
 
 def set_pending(session_id: str, refined_text: str, original_text: str = "") -> None:
@@ -40,11 +61,11 @@ def set_pending(session_id: str, refined_text: str, original_text: str = "") -> 
     unchanged with `n`, rejecting the rewrite)."""
     _ensure()
     path = PENDING_DIR / f"{_safe(session_id)}.json"
-    path.write_text(json.dumps({"ts": time.time(), "refined": refined_text,
-                                "original": original_text}))
+    _secure_write(path, json.dumps({"ts": time.time(), "refined": refined_text,
+                                    "original": original_text}))
     # also seed the backstop cache for a late paste that misses the one-shot
     try:
-        BACKSTOP_PATH.write_text(json.dumps({"ts": time.time(), "refined": refined_text}))
+        _secure_write(BACKSTOP_PATH, json.dumps({"ts": time.time(), "refined": refined_text}))
     except Exception:
         pass
 
@@ -85,7 +106,7 @@ def recent_refined(ttl: int | None = None) -> str | None:
 
 def mark_coached(session_id: str) -> None:
     _ensure()
-    (COOLDOWN_DIR / f"{_safe(session_id)}").write_text(str(time.time()))
+    _secure_write(COOLDOWN_DIR / f"{_safe(session_id)}", str(time.time()))
 
 
 def cooldown_active(session_id: str, cfg: dict) -> bool:

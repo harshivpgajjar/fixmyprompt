@@ -1,6 +1,8 @@
 """Tests for the one-shot bypass + cooldown + backstop (the loop-proof core)."""
 import importlib
 import os
+import stat
+import sys
 import tempfile
 import unittest
 
@@ -25,6 +27,28 @@ class StateTest(unittest.TestCase):
         self.assertEqual(first["refined"], "refined text")
         # consumed — a second take must be None (this is what makes double-block impossible)
         self.assertIsNone(self.s.take_pending("sess1"))
+
+    def test_pending_stores_and_returns_original(self):
+        self.s.set_pending("so", "REFINED", "my ORIGINAL prompt")
+        got = self.s.take_pending("so")
+        self.assertEqual(got["original"], "my ORIGINAL prompt")
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX file modes")
+    def test_state_files_are_owner_only(self):
+        # the pending/backstop/cooldown files hold the user's raw prompt text —
+        # they must not be world-readable on a shared host, and the runtime dir
+        # is 0700 so other users can't traverse into it at all.
+        self.s.set_pending("perm", "refined secret", "original secret")
+        self.s.mark_coached("perm")
+
+        def mode(p):
+            return stat.S_IMODE(os.stat(p).st_mode)
+        self.assertEqual(mode(self.s.PENDING_DIR / "perm.json"), 0o600)
+        self.assertEqual(mode(self.s.BACKSTOP_PATH), 0o600)
+        self.assertEqual(mode(self.s.COOLDOWN_DIR / "perm"), 0o600)
+        import fixmyprompt.config as c
+        self.assertEqual(mode(c.RUNTIME_DIR), 0o700)
+        self.assertEqual(mode(self.s.PENDING_DIR), 0o700)
 
     def test_pending_expires(self):
         self.s.set_pending("sess2", "x")

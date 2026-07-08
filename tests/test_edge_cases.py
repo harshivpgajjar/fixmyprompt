@@ -366,6 +366,49 @@ class ScaffoldStagingTest(unittest.TestCase):
         self.assertNotIn("then press ⏎ to send", reason)           # never the dead instruction
 
 
+class ClarifyingQuestionTest(unittest.TestCase):
+    """Live regression: for "make it better", the refiner returned a pure
+    clarifying question ("Which 'it'? ... Be specific.") in the `refined`
+    field, and the banner presented it as a "refined prompt (copied to
+    clipboard)" with a [y] send option — nonsensical, since sending a question
+    back to Claude isn't a prompt. A genuine rewrite must still offer [y]."""
+
+    def _gate(self, prompt, refined_text):
+        home = tempfile.mkdtemp()
+        (Path(home) / "config.json").write_text('{"mode":"always","tutorial":true}')
+        fake = json.dumps({"needs_refinement": True, "mode": "execute", "refined": refined_text})
+        env = {**os.environ, "FIXMYPROMPT_HOME": home, "PCOACH_COOLDOWN": "0",
+               "ANTHROPIC_API_KEY": "sk-x", "FIXMYPROMPT_FAKE_REFINE": fake}
+        out = subprocess.run([sys.executable, str(GATE)],
+                             input=json.dumps({"prompt": prompt, "session_id": "s"}),
+                             capture_output=True, text=True, env=env).stdout.strip()
+        return json.loads(out)["reason"]
+
+    def test_pure_question_response_becomes_a_scaffold_not_a_fake_refined_prompt(self):
+        reason = self._gate("make it better",
+                            "Which 'it'? Medicoz dashboard, GoaSorted accounting tool, "
+                            "Slacker, design system? What's broken or missing? Be specific.")
+        self.assertIn("make this sharper", reason.lower())   # scaffold framing, not "refined prompt"
+        self.assertNotIn("[y ", reason)                      # never offer to "send" a question
+        self.assertNotIn("copied to clipboard", reason.lower())
+
+    def test_rewrite_that_trails_into_subquestions_still_offers_y(self):
+        # leads with an actual imperative restatement -> still a real, sendable rewrite
+        reason = self._gate("Refactor and re-architect the reporting pipeline for scale.",
+                            "Refactor reporting pipeline for scale. Which pipeline? "
+                            "Medicoz analytics or GoaSorted reports? Target: throughput or cost?")
+        self.assertIn("[y ", reason)
+        self.assertIn("copied to clipboard", reason.lower())
+
+    def test_is_clarifying_question_unit(self):
+        cg = _load_gate_module()
+        self.assertTrue(cg._is_clarifying_question("Which 'it'? Be specific."))
+        self.assertTrue(cg._is_clarifying_question("What is the expected input format?"))
+        self.assertFalse(cg._is_clarifying_question("Refactor the pipeline. Which one?"))
+        self.assertFalse(cg._is_clarifying_question("Add a dark-mode toggle that persists."))
+        self.assertFalse(cg._is_clarifying_question(""))
+
+
 def _timed(fn) -> float:
     t = time.time()
     fn()

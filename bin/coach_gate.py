@@ -59,6 +59,28 @@ _CONFIRM_ORIGINAL = {"n", "no", "nope", "o", "orig", "og", "original", "mine",
                      "keep mine", "keep original", "send mine", "send original",
                      "as is", "as-is", "unchanged", "own", "send my own"}
 
+# A genuine rewrite LEADS with a declarative/imperative restatement of the task
+# ("Refactor the pipeline for scale. Which pipeline? ..."). A clarifying question
+# LEADS with an interrogative aimed at the USER ("Which 'it'? ...") — that's not
+# a prompt at all, so offering "[y] send refined" / clipboard-to-send for it
+# would hand Claude a question meant for the human. Detected on the FIRST
+# sentence only, so a rewrite that trails into sub-questions still counts.
+_QUESTION_LEAD = re.compile(
+    r"^(?:which|what|what'?s|how|how'?s|why|where|who|"
+    r"is there|are there|do you|does|can you|could you|"
+    r"should i|should you|would it|would you)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_clarifying_question(text: str) -> bool:
+    """True if `text` reads as a question TO THE USER rather than an actual
+    rewritten, sendable prompt."""
+    first = re.split(r"(?<=[.!?])\s+", text.strip(), maxsplit=1)[0] if text.strip() else ""
+    if not first:
+        return False
+    return first.rstrip().endswith("?") or bool(_QUESTION_LEAD.match(first.strip()))
+
 # An attached/pasted image shows up as a bracketed marker in the prompt text.
 # The exact wire format isn't documented, so match generously — a bracketed run
 # containing image/screenshot/pasted (incl. a filename like
@@ -159,17 +181,26 @@ def _emit_whisper(context: str) -> None:
     })
 
 
-def _whisper_context(features: dict) -> str:
+def _whisper_context(features: dict, has_attachment: bool = False) -> str:
     gaps = features.get("gaps") or []
     missing = ", ".join(gaps) if gaps else "a concrete done-state"
+    image_note = (
+        " An image/screenshot is attached — it shows WHAT, not the target surface or "
+        "the done-state, so it does NOT excuse skipping this: still confirm or explicitly "
+        "state where the change goes and what checkable outcome means it's finished."
+        if has_attachment else ""
+    )
     return (
         "[FixMyPrompt prompt coach] The user's request is under-specified for a clean "
-        f"one-pass result — it's missing: {missing}. Before doing the work, briefly ask "
+        f"one-pass result — it's missing: {missing}.{image_note} Before doing the work, ask "
         "the user to confirm the key missing piece (a checkable done-state and the target "
-        "surface), UNLESS it's obvious from context — in which case proceed, but state the "
-        "assumption you're making. Then, in one short sentence, note what detail would have "
-        "made the request unambiguous, so they learn the pattern for next time. Keep this to "
-        "2-3 sentences total; ask, don't lecture, and don't mention this note."
+        "surface) UNLESS it is truly unambiguous from context — the bar is high; a design "
+        "reference alone is not enough. If you proceed without asking, the FIRST line of "
+        "your reply must state the assumption you're making, plainly, so the user can "
+        "correct it before you act on it — never bury or skip this. Then, in one short "
+        "sentence, note what detail would have made the request unambiguous, so they learn "
+        "the pattern for next time. Keep this to 2-3 sentences total; ask, don't lecture, "
+        "and don't mention this note."
     )
 
 
@@ -516,7 +547,7 @@ def main() -> None:
                 ctx = ("[FixMyPrompt coach] Relay this Claude Code tip to the user "
                        "in one short line, then proceed with their request: " + cc_tip)
             elif features.get("gaps"):
-                ctx = _whisper_context(features)
+                ctx = _whisper_context(features, has_attachment)
                 if suggestion:
                     ctx += (f"\n\nAlso tell the user in one short line: this task is best "
                             f"suited to {suggestion['model']} at {suggestion['effort']} effort "
@@ -566,7 +597,18 @@ def main() -> None:
                 result = {}
             r = result.get("refined")
             r = r.strip() if isinstance(r, str) else ""
-            if result.get("needs_refinement") and r:
+            if result.get("needs_refinement") and r and _is_clarifying_question(r):
+                # The refiner asked a QUESTION instead of producing a rewrite
+                # (e.g. "make it better" -> "Which 'it'? ..."). That's genuinely
+                # useful guidance, but it isn't a sendable prompt — sending it
+                # would hand Claude a question meant for the user. Present it
+                # like a scaffold: show the question, but never offer [y]/claim
+                # it's "refined" or ready to send.
+                banner_body = r
+                banner_kind = "scaffold"
+                t = result.get("tip")
+                tip = t if isinstance(t, str) else scaffold_tip
+            elif result.get("needs_refinement") and r:
                 refined_sendable = r
                 banner_body = r
                 banner_kind = "refined"

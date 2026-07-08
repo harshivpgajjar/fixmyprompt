@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Thin wrapper — the real installer is the cross-platform install.py (so macOS,
-# Linux, and Windows share one code path). Run `python install.py` directly if
+# Linux, and Windows share one code path). Run `python3 install.py` directly if
 # you prefer.
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

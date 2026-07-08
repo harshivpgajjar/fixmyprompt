@@ -47,14 +47,16 @@ Inside a Claude Code session:
 /plugin install fixmyprompt@fixmyprompt
 ```
 
-This wires the `/refine` skill and the live coaching hook automatically. **Coaching is OFF by default** — nothing intercepts your prompts until you opt in (see Usage below). Restart your session (or start a new one) for the hook to take effect.
+This wires the `/refine` skill and the live coaching hook automatically. **Coaching is OFF by default** — nothing intercepts your prompts until you opt in. Restart your session (or start a new one) for the hook to take effect.
+
+**Note:** the marketplace install does not put the `fixmyprompt` CLI on your PATH — every command in Usage below (`fixmyprompt on`, `report`, `tour`, etc.) needs it. To get the CLI too, also run Option B's install script once (`git clone` + `python3 install.py`) — it's idempotent and safe to run alongside the marketplace install.
 
 ### Option B — clone + install script (macOS · Linux · Windows)
 
 ```bash
 git clone https://github.com/harshivpgajjar/fixmyprompt.git
 cd fixmyprompt
-python install.py          # macOS / Linux / Windows  (or:  ./install.sh)
+python3 install.py         # macOS / Linux / Windows  (or:  ./install.sh)
 ```
 
 On **Windows** (PowerShell):

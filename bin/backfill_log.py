@@ -48,7 +48,7 @@ def main(days: int = 30) -> None:
         feats = scorer.classify(text)
         # write directly with the historical timestamp
         try:
-            config.RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+            config.ensure_runtime_dir()
             record = {
                 "ts": round(ts, 1),
                 "action": "pass",
@@ -64,12 +64,11 @@ def main(days: int = 30) -> None:
                 "preview": scorelog._preview(text, cfg),
                 "backfill": True,
             }
-            with scorelog.LOG_PATH.open("a") as fh:
-                fh.write(json.dumps(record) + "\n")
+            config.secure_append(scorelog.LOG_PATH, json.dumps(record) + "\n")
             n += 1
         except Exception:
             continue
-    MARKER.write_text(str(time.time()))
+    config.secure_write(MARKER, str(time.time()))
     print(f"backfilled {n} historical prompts from the last {days} days")
 
 

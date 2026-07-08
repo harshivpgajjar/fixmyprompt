@@ -272,6 +272,41 @@ class CoachGateTest(unittest.TestCase):
         self.assertEqual(self.actions(), ["coach"])
         self.assertEqual(self.refine_bodies(), [ROUGH])
 
+    def test_established_target_from_transcript_passes_silently(self):
+        # "can we change the url?" is genuinely ambiguous in isolation (change
+        # it to what?), but not when the session transcript just established
+        # exactly which url is meant — the real screenshot bug this guards.
+        transcript = Path(self.home) / "t.jsonl"
+        transcript.write_text(
+            json.dumps({
+                "type": "assistant",
+                "message": {"content": [{
+                    "type": "text",
+                    "text": "swap the ugly sslip.io URL for the real domain",
+                }]},
+            }) + "\n"
+        )
+        out = self.run_gate(
+            fake=None,  # no LLM backend reachable -> offline scaffold path,
+            # same conditions as the real screenshot (no API key, no daemon)
+            stdin_raw=json.dumps({
+                "prompt": "can we change the url?",
+                "session_id": "sess-ctx",
+                "transcript_path": str(transcript),
+                "cwd": self.home,
+                "hook_event_name": "UserPromptSubmit",
+                "permission_mode": "default",
+            }),
+        )
+        self.assertPassThrough(out)
+
+    def test_same_prompt_without_transcript_still_blocks(self):
+        # Same short question, no transcript to establish the referent ->
+        # genuinely under-specified, must still coach (no regression).
+        out = self.run_gate("can we change the url?", fake=None, mode="always")
+        reason = self.assertBlock(out)
+        self.assertIn("Done means", reason)
+
     # =================================================================
     # Invariant 2: block -> bare confirm -> ACCEPT (additionalContext)
     # =================================================================

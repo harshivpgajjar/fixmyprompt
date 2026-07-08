@@ -408,6 +408,57 @@ def _is_system_injected(prompt: str) -> bool:
     return any(m in head for m in _SYSTEM_MARKERS)
 
 
+def _extract_transcript_text(obj, depth: int = 0) -> str:
+    """Pull searchable text out of one parsed transcript-line JSON object,
+    without assuming an exact schema — walks dict/list values under the keys
+    real transcript lines use for message content."""
+    if depth > 6:
+        return ""
+    if isinstance(obj, str):
+        return obj
+    if isinstance(obj, dict):
+        parts = [_extract_transcript_text(v, depth + 1)
+                 for k, v in obj.items() if k in ("text", "content", "message")]
+        return " ".join(p for p in parts if p)
+    if isinstance(obj, list):
+        return " ".join(_extract_transcript_text(v, depth + 1) for v in obj)
+    return ""
+
+
+def _read_recent_context(transcript_path, max_chars: int = 4000) -> str:
+    """Best-effort tail of the session transcript, for scorer.classify()'s
+    optional recent_context — lets a short follow-up ("can we change the
+    url?") recognize a target already established earlier in the session
+    instead of judging the prompt in total isolation. Fails open (empty
+    string) on anything missing/unreadable/malformed — this must never slow
+    down or block the hook."""
+    if not isinstance(transcript_path, str) or not transcript_path:
+        return ""
+    try:
+        p = Path(transcript_path)
+        if not p.is_file():
+            return ""
+        size = p.stat().st_size
+        with p.open("rb") as fh:
+            if size > 65536:
+                fh.seek(-65536, 2)
+            raw = fh.read()
+        lines = raw.decode("utf-8", "replace").splitlines()[-40:]
+        chunks = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            chunks.append(_extract_transcript_text(obj))
+        return " ".join(c for c in chunks if c)[-max_chars:]
+    except Exception:
+        return ""
+
+
 def _refine(body: str, cfg: dict, cwd: str | None = None) -> dict:
     # test seam — active ONLY when FIXMYPROMPT_FAKE_REFINE is set (never set in
     # production; when unset this function is exactly refiner.refine).
@@ -466,6 +517,7 @@ def main() -> None:
             session_id = "nosession"
         cwd = data.get("cwd") if isinstance(data.get("cwd"), str) else None
         scorelog.set_context(session_id, cwd)  # so every log record carries them
+        recent_context = _read_recent_context(data.get("transcript_path"))
         cfg = config.load()
 
         # 1. RESUBMIT BRANCH (one-shot bypass) — guarantees no double-block.
@@ -488,6 +540,15 @@ def main() -> None:
                 _emit_accept(refined)
             if norm in _CONFIRM_ORIGINAL and original.strip():
                 # user rejected the rewrite — send their ORIGINAL prompt untouched.
+                scorelog.log(prompt, scorer.classify(prompt), ACTION_EDIT, cfg)
+                _emit_accept(original, is_original=True)
+            if norm in _CONFIRM and not refined.strip() and original.strip():
+                # A scaffold/tip/affirm block never offers "y" (only "n"), but a
+                # user can still type it from muscle memory after a prior refined
+                # block in the same session. With no refined text to confirm,
+                # honor the intent behind pressing confirm — send their real
+                # prompt — rather than literally submitting the word "y" to
+                # Claude with zero context.
                 scorelog.log(prompt, scorer.classify(prompt), ACTION_EDIT, cfg)
                 _emit_accept(original, is_original=True)
             # Anything else — edited text, an override, a decline, even a bare
@@ -518,14 +579,22 @@ def main() -> None:
                 scorelog.log(prompt, scorer.classify(prompt), ACTION_PASS, cfg)
                 _emit_passthrough()
 
-        features = scorer.classify(body)
+        features = scorer.classify(body, recent_context=recent_context)
         cc = cc_tips.analyze(body, features) if cfg.get("cc_tips") else None
         cc_tip = cc["tip"] if cc else None
         would_coach = scorer.should_coach(features, cfg)
         # A high-value Claude Code tip (new-work/context-switch, big-goal) is
         # worth surfacing even on an already well-formed prompt; lower-value tips
         # (plan mode, subagents) only ride along when the gate already coaches.
-        engage_for_tip = bool(cc and cc["engage"])
+        # But it must never override the HARD silence gates should_coach() itself
+        # respects (scorer.py: is_command/is_continuation/is_conversational/
+        # looks_like_paste) — a slash command, a paste, or a mid-dialogue reply
+        # must never be blocked just because it happens to contain tip-trigger
+        # words (e.g. "/kickoff a new project" is a command, not new-work chatter).
+        hard_silent = any(features.get(k) for k in
+                          ("is_command", "is_continuation", "is_conversational",
+                           "looks_like_paste"))
+        engage_for_tip = bool(cc and cc["engage"]) and not hard_silent
 
         # 4. GATE (local, zero-latency) + cooldown.
         if state.cooldown_active(session_id, cfg) or (not would_coach and not engage_for_tip):

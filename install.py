@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """FixMyPrompt cross-platform installer.
 
-  python install.py            # install
-  python install.py --uninstall
+  python3 install.py           # install
+  python3 install.py --uninstall
 
 Installs the runtime into ~/.claude/fixmyprompt, wires the UserPromptSubmit hook
 into ~/.claude/settings.json (via the Node launcher shim so it works on macOS,
@@ -11,7 +11,8 @@ on PATH (a symlink on POSIX, a .cmd shim + user PATH entry on Windows).
 
 Coaching ships DISABLED (mode=off); teach-mode ships ON. Nothing intercepts your
 prompts until you run `fixmyprompt on`. Idempotent — re-running never clobbers
-your config, log, or learned criteria/hints. Pure stdlib.
+your config, log, or learned criteria/hints. Pure stdlib. Requires Python 3.8+
+(uses copytree(dirs_exist_ok=) and unlink(missing_ok=)).
 """
 from __future__ import annotations
 
@@ -21,6 +22,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+if sys.version_info < (3, 8):
+    sys.exit(
+        f"FixMyPrompt needs Python 3.8 or newer (found {sys.version.split()[0]}).\n"
+        "Install a current Python from python.org, then re-run this script."
+    )
 
 IS_WIN = os.name == "nt"
 SRC = Path(__file__).resolve().parent
@@ -270,6 +277,8 @@ def uninstall():
     print("FixMyPrompt uninstaller")
     _teardown_daemon()
     _unwire_hook()
+    shutil.rmtree(CLAUDE / "skills" / "refine", ignore_errors=True)
+    print("  ok  /refine skill removed")
     if IS_WIN:
         shim = Path(os.environ.get("LOCALAPPDATA", HOME / "AppData" / "Local")) / "Programs" / "fixmyprompt"
         shutil.rmtree(shim, ignore_errors=True)

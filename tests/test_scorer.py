@@ -473,6 +473,51 @@ class TestEdgeCases(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# recent_context — a short follow-up naming a target already established
+# earlier in the session isn't actually under-specified, even with no
+# explicit done-state. Default "" must never change existing behavior.
+# ---------------------------------------------------------------------------
+
+class TestRecentContext(unittest.TestCase):
+    PROD_CFG = {"mode": "always", "min_words": 4, "coach_below_quality": 0.7}
+
+    def test_default_recent_context_is_unchanged_behavior(self):
+        f = classify("can we change the url?")
+        self.assertEqual(f["mode"], "execute")
+        self.assertIn("no acceptance criteria", f["gaps"])
+        self.assertFalse(f["has_done_criteria"])
+        self.assertTrue(should_coach(f, self.PROD_CFG))
+
+    def test_established_target_drops_acceptance_gap_and_coaching(self):
+        ctx = ("swap the ugly sslip.io URL for the real domain, point "
+               "queensharbour.<tld> A record to the server")
+        f = classify("can we change the url?", recent_context=ctx)
+        self.assertNotIn("no acceptance criteria", f["gaps"])
+        self.assertNotIn("very terse for a build request", f["gaps"])
+        self.assertTrue(f["has_done_criteria"])
+        self.assertFalse(should_coach(f, self.PROD_CFG))
+
+    def test_unrelated_context_does_not_suppress_coaching(self):
+        ctx = "the weather is nice today, unrelated chit chat"
+        f = classify("can we change the url?", recent_context=ctx)
+        self.assertIn("no acceptance criteria", f["gaps"])
+        self.assertTrue(should_coach(f, self.PROD_CFG))
+
+    def test_context_does_not_rescue_a_genuinely_vague_ask(self):
+        # "the mobile version" is a broad surface, not a single scalar value —
+        # merely having been mentioned before doesn't make "fix" it checkable.
+        # This documents a known, accepted limitation of the phrase-overlap
+        # heuristic, not an intended guarantee.
+        ctx = "yeah the mobile version looks off to me too"
+        f = classify("fix the mobile version", recent_context=ctx)
+        self.assertNotIn("no acceptance criteria", f["gaps"])  # accepted trade-off
+
+    def test_non_string_recent_context_is_ignored_not_raised(self):
+        f = classify("can we change the url?", recent_context=None)  # type: ignore[arg-type]
+        self.assertIn("no acceptance criteria", f["gaps"])
+
+
+# ---------------------------------------------------------------------------
 # Performance — the gate sits in front of every prompt submission
 # ---------------------------------------------------------------------------
 

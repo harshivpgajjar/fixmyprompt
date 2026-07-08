@@ -60,12 +60,18 @@ class LocalGateTest(unittest.TestCase):
         self.assertEqual(json.loads(first.stdout)["decision"], "block")
         self.assertEqual(second.stdout.strip(), "")  # passthrough
 
-    def test_bare_y_after_local_block_passes_not_accepts(self):
-        # in local mode the scaffold isn't sendable, so `y` must pass through
-        # (become a normal 'y'), NOT emit an accept with placeholder text.
+    def test_bare_y_after_local_block_sends_original_not_literal_y(self):
+        # The scaffold banner never OFFERS "y" (only "n"/paste — there's no
+        # refined text to confirm). But a user can still type it from muscle
+        # memory after a prior refined-prompt block in the same session. With
+        # nothing to confirm, honor the intent behind pressing confirm — send
+        # their real prompt — rather than literally submitting the word "y"
+        # to Claude with zero context (that would be a silently wrong send,
+        # which contradicts the tool's own fail-open design).
         run(ROUGH, "L3", self.home)
         out = run("y", "L3", self.home)
-        self.assertEqual(out.stdout.strip(), "")  # plain passthrough
+        ctx = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(ROUGH, ctx)
 
     def test_wellformed_prompt_silent_in_local_mode(self):
         good = ("add a call and whatsapp icon next to it, call should dial that "

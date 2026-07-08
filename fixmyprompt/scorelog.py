@@ -65,7 +65,7 @@ def log(prompt: str, features: dict, action: str, cfg: dict | None = None) -> No
     """Append one record. Never raises."""
     cfg = cfg or config.load()
     try:
-        config.RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        config.ensure_runtime_dir()
         record = {
             "ts": round(time.time(), 1),
             "action": action,
@@ -82,8 +82,7 @@ def log(prompt: str, features: dict, action: str, cfg: dict | None = None) -> No
             "session_id": _CTX["session_id"],
             "cwd": _CTX["cwd"],
         }
-        with LOG_PATH.open("a") as fh:
-            fh.write(json.dumps(record) + "\n")
+        config.secure_append(LOG_PATH, json.dumps(record) + "\n")
     except Exception:
         pass  # logging must never disrupt the user's turn
 

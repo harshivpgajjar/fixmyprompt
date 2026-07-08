@@ -48,7 +48,10 @@ def _system_prompt(context: str) -> str:
 
 
 def load_user_context() -> str:
-    """Best-effort personalization from the user's memory files."""
+    """Best-effort personalization from `~/.claude/memory/*.md`, if present.
+    This is NOT a Claude Code platform convention — it's this project's own
+    optional personal-memory files. Most users won't have them; the read is
+    a harmless no-op in that case (empty string), never an error."""
     home = Path(os.path.expanduser("~")) / ".claude" / "memory"
     parts = []
     for name in ("core.md", "design-taste.md"):

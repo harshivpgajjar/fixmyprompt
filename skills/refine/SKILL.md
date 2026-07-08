@@ -7,7 +7,7 @@ description: Refine a rough prompt before you send it — get a sharper, send-re
 
 The user handed you a rough draft of a prompt they were about to send (as the argument). Do NOT execute it — coach it.
 
-Read `~/.claude/memory/core.md` and `~/.claude/memory/design-taste.md` if present, so your refinement respects their stack, voice, and taste. Then:
+If `~/.claude/memory/core.md` and/or `~/.claude/memory/design-taste.md` exist (this project's own optional personal-memory convention, not a Claude Code platform feature — most users won't have these), read them so your refinement respects their stack, voice, and taste. Then:
 
 1. **Detect the mode.**
    - **Explore** (open-ended ideation: "blow me away", "give me options", "I don't know what I want"): this is valid discovery — do NOT force a spec. At most, turn it into a *productive* exploration ("5 distinct hero directions, one screen each, maximally different, seeded from my taste file"). If it's already a good explore ask, say so and stop.

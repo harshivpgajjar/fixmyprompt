@@ -13,6 +13,41 @@ HOME = Path(os.path.expanduser("~"))
 RUNTIME_DIR = Path(os.environ.get("FIXMYPROMPT_HOME", HOME / ".claude" / "fixmyprompt"))
 CONFIG_PATH = RUNTIME_DIR / "config.json"
 
+
+def _chmod(path, mode: int) -> None:
+    # No-op on Windows/unsupported FS (ACLs, not POSIX bits) — harmless.
+    try:
+        os.chmod(path, mode)
+    except OSError:
+        pass
+
+
+def ensure_runtime_dir() -> None:
+    """Create RUNTIME_DIR owner-only (0700). This runs on every prompt log
+    write, not just coaching, so the shared-host privacy guarantee (see
+    state.py's PENDING_DIR/COOLDOWN_DIR) also covers the prompt log,
+    criteria/projects hints, and config.json even when coaching is off."""
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    _chmod(RUNTIME_DIR, 0o700)
+
+
+def secure_write(path, text: str) -> None:
+    """Overwrite owner-only (0600). Mode is set at open() time, not via a
+    later chmod, so a new file is never briefly world/group-readable at the
+    default umask (same reasoning as state.py's _secure_write)."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    _chmod(path, 0o600)  # narrow an already-existing file's stale mode too
+
+
+def secure_append(path, text: str) -> None:
+    """Append owner-only (0600) — for logs that must never be truncated."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as f:
+        f.write(text)
+    _chmod(path, 0o600)
+
 DEFAULTS = {
     # mode: how the live hook behaves.
     #   "always"  — block before send, show a refined version / local scaffold
@@ -97,7 +132,7 @@ def load() -> dict:
 
 def save(patch: dict) -> dict:
     """Merge a patch into config.json and return the new full config."""
-    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_runtime_dir()
     current = {}
     try:
         if CONFIG_PATH.exists():
@@ -107,5 +142,5 @@ def save(patch: dict) -> dict:
     if not isinstance(current, dict):  # a corrupt/non-dict config.json must not crash save()
         current = {}
     current.update({k: v for k, v in patch.items() if k in DEFAULTS})
-    CONFIG_PATH.write_text(json.dumps(current, indent=2) + "\n")
+    secure_write(CONFIG_PATH, json.dumps(current, indent=2) + "\n")
     return load()

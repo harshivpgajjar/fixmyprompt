@@ -112,12 +112,17 @@ _EXPLORE = re.compile(
     r"(?:give|show|send|get|make|draft|mock) (?:me|us) [^.\n]{0,40}?"
     r"(?:options|ideas|concepts|directions|variations|variants|alternatives|explorations|proposals)\b|"
     # "7 options", "a few directions", "a couple of looks" — but not when they
-    # feed into a surface ("add 3 options to the dropdown" is a feature).
+    # feed into a surface ("add 3 options to the dropdown", "3 options for
+    # sorting the list" are features, not a request for creative freedom).
     r"(?:a few|a couple(?: of)?|several|multiple|at ?least \d+|\d+)\s+(?:different )?"
     r"(?:options|ideas|concepts|directions|variations|variants|versions|looks|styles|approaches)\b"
-    r"(?!\s+(?:to|in|into|inside|on)\b)|"
+    r"(?!\s+(?:to|in|into|inside|on|for|at|during)\b)|"
     r"what are (?:some|a few|the) (?:options|ideas|ways|approaches)|"
-    r"how (?:should|could|might) (?:we|i)\b"
+    # Anchored to the START of the prompt (like _QUESTION) — "how should we
+    # handle X" as the whole ask is genuine discovery, but a trailing aside
+    # after a real task ("fix the deploy script and how should i test it")
+    # must not flip the entire prompt to explore mode.
+    r"^how (?:should|could|might) (?:we|i)\b"
     r")",
     re.IGNORECASE,
 )
@@ -261,6 +266,39 @@ _VAGUE_TARGET = re.compile(
     re.IGNORECASE,
 )
 
+# A definite noun phrase ("the url", "the checkout button") — used to check
+# whether a short prompt's target was already established earlier in the
+# session (see _target_established). Deliberately short (1-3 words) so it
+# stays a specific referent, not a whole clause.
+_DEFINITE_TARGET = re.compile(
+    r"\bthe ([a-z][a-z0-9_-]*(?: [a-z][a-z0-9_-]*){0,2})\b", re.IGNORECASE
+)
+
+
+def _target_established(prompt: str, recent_context: str) -> bool:
+    """True if a definite noun phrase in the prompt ('the url', 'the button')
+    already appears in recent_context (e.g. the tail of the session
+    transcript). classify() is otherwise stateless and judges a prompt in
+    isolation — this is the one deliberate, opt-in exception: a short
+    follow-up naming something already established in conversation isn't
+    actually under-specified, even though nothing in the prompt itself spells
+    out a done-state. Empty recent_context (the default) never matches, so
+    every existing caller that doesn't pass it is unaffected."""
+    if not recent_context:
+        return False
+    ctx = recent_context.lower()
+    for m in _DEFINITE_TARGET.finditer(prompt):
+        words = m.group(1).lower().split()
+        # Try the full captured phrase first, then shorter prefixes ("url
+        # now" -> "url") so a trailing word ("now", "please", "here") right
+        # after the referent doesn't defeat the match — only the noun itself
+        # needs to have been established, not whatever follows it.
+        for k in range(len(words), 0, -1):
+            phrase = " ".join(words[:k])
+            if re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", ctx):
+                return True
+    return False
+
 # Signals for model/effort routing (mirrors the user's own routing rules).
 _HARD_TASK = re.compile(
     r"\b(?:architect(?:ure)?|system design|design (?:a|the) system|refactor|"
@@ -328,9 +366,16 @@ def _looks_like_paste(prompt: str) -> bool:
 # classify
 # --------------------------------------------------------------------------
 
-def classify(prompt: str) -> dict:
+def classify(prompt: str, recent_context: str = "") -> dict:
+    """`recent_context` is optional (defaults to "", which never changes
+    behavior — every existing caller stays correct). When the hook passes the
+    tail of the session transcript, a short prompt whose definite target was
+    already established there (see _target_established) is no longer treated
+    as under-specified, even with no explicit done-state or word count."""
     if not isinstance(prompt, str):
         prompt = ""
+    if not isinstance(recent_context, str):
+        recent_context = ""
     stripped = prompt.strip()
     wc = len(re.findall(r"\S+", stripped))  # true word count, from the full text
     looks_paste = _looks_like_paste(prompt) if stripped else False
@@ -379,13 +424,18 @@ def classify(prompt: str) -> dict:
     )
 
     # --- gaps (execute mode only — coaching targets, human-readable)
+    context_anchored = mode == "execute" and _target_established(prompt, recent_context)
+    if context_anchored:
+        has_done = True  # referent already established earlier in the session —
+        # functionally the same as if the prompt spelled out its own done-state.
+
     gaps: list[str] = []
     if mode == "execute":
         if not has_done:
             gaps.append("no acceptance criteria")
         if is_design and not (has_reference or has_constraints or has_done):
             gaps.append("design ask with no reference or constraints")
-        if wc < 8:
+        if wc < 8 and not context_anchored:
             gaps.append("very terse for a build request")
         if _VAGUE_TARGET.search(prompt) and not has_done and not has_constraints:
             gaps.append("vague target (what exactly should change?)")

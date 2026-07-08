@@ -29,7 +29,7 @@ FEATURES schema returned by scorer.classify():
     quality           : float  # 0.0..1.0 composite, for the trend line
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 # Canonical feature keys — importable so scorer and coach_gate never drift.
 FEATURE_KEYS = (

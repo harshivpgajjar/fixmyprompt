@@ -27,7 +27,7 @@ def template(prompt: str, features: dict) -> str | None:
             "Direction: <a reference ('like <site>') or constraints "
             "(palette hex + typeface + mood) — pick one>"
         )
-    if any("vague target" in g or "terse" in g for g in gaps):
+    if any("vague target" in g for g in gaps):
         adds.append("Target: <which page/file/surface, and what's visibly wrong right now>")
 
     if not adds:

@@ -127,10 +127,19 @@ _CATEGORY_ORDER = ["Context", "Reasoning", "Model", "Delegation", "Input",
 _NEW_WORK = re.compile(
     r"\b(?:"
     r"new feature|add(?:ing)? (?:a |another )?new (?:\w+ ){0,3}?feature|"
-    r"new (?:project|task|module|component|page|screen|app|system|thing)|"
+    # NB: deliberately excludes component/page/screen — adding a page or
+    # component to an EXISTING project is routine continuing work, not a
+    # context switch worth a /clear. "new project/task/module/app/system"
+    # are the ones that plausibly mean "I'm done with what I was doing".
+    r"new (?:project|task|module|app|system|thing)|"
     r"let'?s (?:start|begin|kick off|move on)|now let'?s (?:start|build|add|create|make|implement)|"
     r"start(?:ing)? (?:a |on |building |fresh)|build me a (?:new|whole)|"
-    r"moving on|move on to|switch(?:ing)? to|onto the next|next feature|"
+    r"moving on|move on to|onto the next|next feature|"
+    # "switch to X" alone is too broad — it also matches tech/implementation
+    # choices ("switch to postgres", "switch to dark mode"), which are part
+    # of the SAME task, not a context switch. Only count it when the target
+    # is itself a fresh unit of work.
+    r"switch(?:ing)? to (?:a |the )?(?:different|other|new) (?:project|task|topic|thing)|"
     r"another (?:feature|thing|project|task)|"
     r"time to (?:build|start|tackle)|implement (?:a |the )?(?:new|whole)"
     r")\b",

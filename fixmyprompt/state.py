@@ -40,8 +40,20 @@ def _chmod(path, mode: int) -> None:
 
 def _secure_write(path, text: str) -> None:
     """Write owner-only. These files hold the user's in-flight PROMPT text, so on
-    a shared host they must not be world-readable."""
-    path.write_text(text)
+    a shared host they must not be world-readable.
+
+    The mode is passed to the OPEN call itself (os.O_CREAT with mode=0o600), not
+    applied afterward via chmod — a separate write-then-chmod has a TOCTOU
+    window where the file briefly exists at the default umask (typically 0o644)
+    before being narrowed, during which another local process could read it."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # os.fdopen's context manager owns fd from here — its __exit__ closes it
+    # exactly once, on success or exception, so no separate close/except needed.
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    # Belt-and-suspenders: O_CREAT only sets the mode on a NEW file — if the path
+    # already existed (e.g. reusing a session id) its old mode carries over, so
+    # narrow it explicitly too. Cheap and idempotent when it's already 0600.
     _chmod(path, 0o600)
 
 

@@ -50,6 +50,43 @@ class StateTest(unittest.TestCase):
         self.assertEqual(mode(c.RUNTIME_DIR), 0o700)
         self.assertEqual(mode(self.s.PENDING_DIR), 0o700)
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX file modes")
+    def test_secure_write_is_atomic_no_toctou_window(self):
+        # a separate write-then-chmod briefly creates the file at the default
+        # umask before narrowing it — a real (if brief) exposure window on a
+        # shared host. The mode must be 0600 from the very first os.open(),
+        # even under a permissive umask, with no chmod call in between.
+        old_umask = os.umask(0o022)
+        try:
+            p = self.s.PENDING_DIR
+            p.mkdir(parents=True, exist_ok=True)
+            target = p / "atomic.json"
+            observed = []
+            real_open = os.open
+
+            def spy(path, flags, mode=0o777):
+                fd = real_open(path, flags, mode)
+                observed.append(stat.S_IMODE(os.fstat(fd).st_mode))
+                return fd
+            os.open = spy
+            try:
+                self.s._secure_write(target, "secret prompt text")
+            finally:
+                os.open = real_open
+        finally:
+            os.umask(old_umask)
+        self.assertEqual(observed, [0o600])  # 0600 at the OPEN call itself, not after
+
+    def test_secure_write_tightens_a_preexisting_looser_file(self):
+        p = self.s.PENDING_DIR
+        p.mkdir(parents=True, exist_ok=True)
+        target = p / "existing.json"
+        target.write_text("old")
+        os.chmod(target, 0o644)
+        self.s._secure_write(target, "new secret")
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o600)
+        self.assertEqual(target.read_text(), "new secret")
+
     def test_pending_expires(self):
         self.s.set_pending("sess2", "x")
         self.assertIsNone(self.s.take_pending("sess2", ttl=-1))
